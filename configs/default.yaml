@@ -20,7 +20,7 @@ input:
 
 
 output:
-  output_dir: outputs/mesh_001/mesh_001_test_splatting_membrane
+  output_dir: outputs/mesh_001/mesh_001_splatting_membrane_psf
   output_name: mesh_001
 
 
@@ -42,7 +42,7 @@ renderer:
   # Options:
   #   voxel_grid
   #   gaussian_splatting
-  method: gaussian_splatting 
+  method: gaussian_splatting
 
   # Options:
   #   membrane
@@ -64,11 +64,18 @@ renderer:
 splatting:
   # Used when renderer.method: gaussian_splatting
   spacing_nm: 100
-  sigma_zyx: [1.0, 2.0, 2.0]
 
-  # false = splatting itself creates the blur
-  # true  = splatting + PSF convolution
-  apply_psf: false
+  # Gaussian splat width in voxel units: [Z, Y, X]
+  sigma_zyx: [0.5, 0.8, 0.8]
+
+  # Apply calibrated PSF after Gaussian splatting
+  apply_psf: true
+
+  # Surface point sampling seed
+  seed: 0
+
+  # Number of surface points processed per batch
+  points_per_batch: 50000
 
 
 psf:

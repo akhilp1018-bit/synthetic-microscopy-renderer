@@ -82,7 +82,6 @@ def mesh_to_density_zyx(
     Membrane mode.
 
     Converts the mesh surface into a voxel density grid.
-    This is the surface/membrane rendering concept from the old pipeline.
     """
     device = get_device(device)
 
@@ -260,8 +259,6 @@ def mesh_pseudofilled_to_density_zyx(
     First creates membrane/surface density.
     Then applies stronger smoothing/pseudofill to make the object thicker
     and more volume-like.
-
-    This follows the old pipeline concept.
     """
     rho = mesh_to_density_zyx(
         mesh_path=mesh_path,

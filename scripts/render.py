@@ -277,7 +277,9 @@ def main():
         metadata = {
             "input_mode": input_mode,
             "renderer": method,
+            "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
             "psf_mode": psf_mode,
+            "splatting_apply_psf": bool(config.get("splatting", {}).get("apply_psf", False)),
             "device": str(device),
             "image_path": image_path,
             "mask_path": mask_path,
@@ -423,7 +425,9 @@ def main():
         metadata = {
             "input_mode": input_mode,
             "renderer": method,
+            "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
             "psf_mode": psf_mode,
+            "splatting_apply_psf": bool(config.get("splatting", {}).get("apply_psf", False)),
             "device": str(device),
             "num_spines": len(sim_spine_paths),
             "image_path": image_path,
