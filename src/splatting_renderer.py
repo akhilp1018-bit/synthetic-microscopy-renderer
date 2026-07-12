@@ -97,12 +97,15 @@ def _splat_points_to_volume(
     )
 
     points_vox_xyz = (points - origin) / voxel_size
+    points_vox_z = points_vox_xyz[:, 2]
+    points_vox_y = (Y - 1) - points_vox_xyz[:, 1]
+    points_vox_x = points_vox_xyz[:, 0]  
 
     points_vox_zyx = torch.stack(
         [
-            points_vox_xyz[:, 2],
-            points_vox_xyz[:, 1],
-            points_vox_xyz[:, 0],
+            points_vox_z,
+            points_vox_y,
+            points_vox_x,
         ],
         dim=1,
     )
