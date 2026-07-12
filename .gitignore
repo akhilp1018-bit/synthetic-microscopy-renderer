@@ -14,12 +14,10 @@ deepd3_env/
 .vscode/
 .idea/
 
-# Mesh / microscopy input data
+# Large mesh files
 *.ply
 *.obj
 *.stl
-*.tif
-*.tiff
 
 # Generated outputs
 outputs/
