@@ -105,3 +105,65 @@ def get_combined_bbox_nm(mesh_paths: list[str | Path]) -> dict:
         "ymax": max(b[4] for b in bboxes),
         "zmax": max(b[5] for b in bboxes),
     }
+
+
+def find_labelled_component_paths(
+    labelled_dir: str | Path,
+    dendrite_pattern: str = "dendrite*.ply",
+    spine_pattern: str = "spine*.ply",
+) -> tuple[Path, list[Path]]:
+    labelled_dir = Path(labelled_dir)
+
+    if not labelled_dir.exists():
+        raise FileNotFoundError(f"Labelled mesh folder not found: {labelled_dir}")
+
+    dendrite_paths = sorted(labelled_dir.glob(dendrite_pattern))
+    spine_paths = sorted(labelled_dir.glob(spine_pattern))
+
+    if len(dendrite_paths) == 0:
+        raise FileNotFoundError(
+            f"No dendrite mesh found in {labelled_dir} with pattern {dendrite_pattern}"
+        )
+
+    if len(dendrite_paths) > 1:
+        print("Warning: multiple dendrite meshes found. Using first one:")
+        for p in dendrite_paths:
+            print(f"  {p}")
+
+    if len(spine_paths) == 0:
+        raise FileNotFoundError(
+            f"No spine meshes found in {labelled_dir} with pattern {spine_pattern}"
+        )
+
+    dendrite_path = dendrite_paths[0]
+
+    print("\nLabelled components:")
+    print(f"  Dendrite : {dendrite_path}")
+    print(f"  Spines   : {len(spine_paths)} found")
+    print(f"  First few: {spine_paths[:3]}")
+
+    return dendrite_path, spine_paths
+
+
+def prepare_labelled_components_for_sim(
+    dendrite_path: str | Path,
+    spine_paths: list[str | Path],
+    scale_to_nm: float = 1.0,
+    recenter: bool = False,
+) -> tuple[str, list[str]]:
+    sim_dendrite_path = prepare_mesh_for_sim(
+        dendrite_path,
+        scale_to_nm=scale_to_nm,
+        recenter=recenter,
+    )
+
+    sim_spine_paths = [
+        prepare_mesh_for_sim(
+            p,
+            scale_to_nm=scale_to_nm,
+            recenter=recenter,
+        )
+        for p in spine_paths
+    ]
+
+    return sim_dendrite_path, sim_spine_paths
