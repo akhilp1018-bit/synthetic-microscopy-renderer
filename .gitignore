@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+thesis_env/
+deepd3_env/
+
+# Editor
+.vscode/
+.idea/
+
+# Mesh / microscopy input data
+*.ply
+*.obj
+*.stl
+*.tif
+*.tiff
+
+# Generated outputs
+outputs/
+*.png
+*.jpg
+*.jpeg
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.zarr
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
