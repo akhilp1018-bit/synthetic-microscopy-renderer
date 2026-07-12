@@ -33,8 +33,8 @@ grid:
   #   true  = render cropped centered ROI
   use_roi: true
 
-  roi_size_um_x: 150.0
-  roi_size_um_y: 150.0
+  roi_size_um_x: 100.0
+  roi_size_um_y: 100.0
   margin: 0.05
 
 
@@ -50,7 +50,7 @@ renderer:
   labeling_mode: membrane
 
   # Used by voxel_grid and gaussian_splatting
-  spacing_nm: 100
+  spacing_nm: 150
   batch_faces: 2048
 
   # Used only when labeling_mode: pseudofilled
