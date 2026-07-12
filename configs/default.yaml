@@ -20,12 +20,12 @@ input:
 
 
 output:
-  output_dir: outputs/mesh_001_test
+  output_dir: outputs/mesh_001_test_xy200_z500_roi100
   output_name: mesh_001
 
 
 grid:
-  xy_um_per_px: 0.094
+  xy_um_per_px: 0.2
   z_step_um: 0.5
 
   # Options:
@@ -33,8 +33,8 @@ grid:
   #   true  = render cropped centered ROI
   use_roi: true
 
-  roi_size_um_x: 200.0
-  roi_size_um_y: 200.0
+  roi_size_um_x: 100.0
+  roi_size_um_y: 100.0
   margin: 0.05
 
 
@@ -78,7 +78,7 @@ psf:
   #   gaussian_2p
   mode: bornwolf_2p
 
-  path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
+  path: psfs/psf_bornwolf_488nm_NA1_xy200nm_z500nm_65x65x13.tif
   two_photon_like: true
 
   # Used only when mode: gaussian_2p
