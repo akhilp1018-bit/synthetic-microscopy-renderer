@@ -79,8 +79,10 @@ def mesh_to_density_zyx(
     batch_faces=2048,
 ):
     """
-    Deterministic mesh surface to density grid rho[z,y,x].
-    This is the membrane/surface-label renderer from the old pipeline.
+    Membrane mode.
+
+    Converts the mesh surface into a voxel density grid.
+    This is the surface/membrane rendering concept from the old pipeline.
     """
     device = get_device(device)
 
@@ -162,7 +164,7 @@ def mesh_to_density_zyx(
             iy = torch.floor((pts[:, 1] - y0) / sy).long()
             iz = torch.floor((pts[:, 2] - z0) / sz).long()
 
-            # Keep same convention as old code
+            # Keep old image coordinate convention
             iy = (Y - 1) - iy
 
             valid = (
@@ -242,6 +244,45 @@ def smooth_density_zyx(
     return rho_s
 
 
+def mesh_pseudofilled_to_density_zyx(
+    mesh_path,
+    origin_nm,
+    voxel_size_nm_xyz,
+    shape_zyx,
+    spacing_nm=200.0,
+    device=None,
+    batch_faces=2048,
+    pseudofill_sigma_zyx=(2.0, 2.5, 2.5),
+):
+    """
+    Pseudofilled mode.
+
+    First creates membrane/surface density.
+    Then applies stronger smoothing/pseudofill to make the object thicker
+    and more volume-like.
+
+    This follows the old pipeline concept.
+    """
+    rho = mesh_to_density_zyx(
+        mesh_path=mesh_path,
+        origin_nm=origin_nm,
+        voxel_size_nm_xyz=voxel_size_nm_xyz,
+        shape_zyx=shape_zyx,
+        spacing_nm=spacing_nm,
+        device=device,
+        batch_faces=batch_faces,
+    )
+
+    rho = smooth_density_zyx(
+        rho,
+        sigma_zyx=pseudofill_sigma_zyx,
+        normalize_sum=True,
+        device=device,
+    )
+
+    return rho
+
+
 def ensure_psf_odd_xy(psf_zyx, renormalize=False, device=None):
     device = get_device(device)
 
@@ -285,6 +326,7 @@ def build_density_for_mesh(
     print(f"\n{'=' * 50}")
     print(f"Building density: {tag}")
     print(f"Mesh: {mesh_path}")
+    print(f"Labeling mode: {labeling_mode}")
     print(f"{'=' * 50}")
 
     t0 = time.time()
@@ -299,9 +341,22 @@ def build_density_for_mesh(
             device=device,
             batch_faces=batch_faces,
         )
+
+    elif labeling_mode == "pseudofilled":
+        rho = mesh_pseudofilled_to_density_zyx(
+            mesh_path=mesh_path,
+            origin_nm=origin_nm,
+            voxel_size_nm_xyz=voxel_size_nm_xyz,
+            shape_zyx=shape_zyx,
+            spacing_nm=spacing_nm,
+            device=device,
+            batch_faces=batch_faces,
+            pseudofill_sigma_zyx=pseudofill_sigma_zyx,
+        )
+
     else:
         raise ValueError(
-            "Only labeling_mode='membrane' is implemented in the clean single-mesh renderer."
+            "labeling_mode must be 'membrane' or 'pseudofilled'"
         )
 
     if device.type == "cuda":
