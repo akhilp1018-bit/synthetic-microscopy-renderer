@@ -1,67 +1,64 @@
 input:
-  # Available modes:
-  #   single_mesh          = render one mesh file
-  #   labelled_components = later: render dendrite/spine components and masks
+  # Options:
+  #   single_mesh
+  #   labelled_components
   mode: single_mesh
 
+  # Used when mode: single_mesh
   mesh_path: data/mesh_001/mesh_001.ply
 
-  # Converts mesh coordinates to nm.
-  # Use 1.0 if mesh is already in nm.
-  # Use 1000000.0 if mesh is in mm and must be converted to nm.
-  scale_to_nm: 1.0
+  # Used when mode: labelled_components
+  labelled_dir: data/sample_001
+  dendrite_pattern: dendrite*.ply
+  spine_pattern: spine*.ply
 
+  scale_to_nm: 1.0
   recenter: false
 
-
 output:
-  output_dir: outputs/mesh_001_voxel
+  output_dir: outputs/mesh_001_test
   output_name: mesh_001
-
 
 grid:
   xy_um_per_px: 0.094
   z_step_um: 0.5
-
-  # Available:
-  #   false = render full mesh bounding box
-  #   true  = render cropped centered ROI
-  use_roi: false
-
+  use_roi: true
   roi_size_um_x: 200.0
   roi_size_um_y: 200.0
   margin: 0.05
 
-
 renderer:
-  # Available methods:
-  #   voxel_grid         = current PyTorch voxel-grid renderer
-  #   gaussian_splatting = later point/splat renderer
+  # Options:
+  #   voxel_grid
+  #   gaussian_splatting
   method: voxel_grid
 
-  # Available labeling modes:
-  #   membrane = surface/membrane density from mesh faces
   labeling_mode: membrane
-
-  # Old pipeline density settings
   spacing_nm: 100
   batch_faces: 2048
   pseudofill_sigma_zyx: [2.0, 2.5, 2.5]
   density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
   density_normalize_sum: true
 
+splatting:
+  spacing_nm: 100
+  sigma_zyx: [1.0, 2.0, 2.0]
+
+  # false = splatting itself creates the blur
+  # true  = splatting + PSF convolution
+  apply_psf: false
 
 psf:
-  # Available modes:
-  #   bornwolf_1p = loaded Born-Wolf PSF, no squaring
-  #   bornwolf_2p = loaded Born-Wolf PSF, squared for 2P-like response
-  #   gaussian_2p = generated Gaussian 2P-like PSF
+  # Options:
+  #   bornwolf_1p
+  #   bornwolf_2p
+  #   gaussian_2p
   mode: bornwolf_2p
 
   path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
   two_photon_like: true
 
-  # Used only when mode: gaussian_2p
+  # Used only for mode: gaussian_2p
   shape_zyx: [13, 65, 65]
   lambda_nm: 488.0
   na: 1.0
@@ -69,14 +66,16 @@ psf:
   sigma_scale_xy: 1.0
   sigma_scale_z: 1.0
 
-
 noise:
-  # Available:
-  #   false = no noise
-  #   true  = add Poisson photon noise + Gaussian read noise
   enabled: false
-
   peak_photons: 500.0
   read_noise_std: 5.0
   seed: 0
   gaussian_chunk_slices: 16
+
+masks:
+  object_rel_threshold: 0.1
+  spine_rel_threshold: 0.1
+  dendrite_rel_threshold: 0.1
+  save_individual_spine_masks: true
+  save_clean_component_images: true
