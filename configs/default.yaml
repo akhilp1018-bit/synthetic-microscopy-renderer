@@ -20,7 +20,7 @@ input:
 
 
 output:
-  output_dir: outputs/mesh_001_test_membrane
+  output_dir: outputs/mesh_001/mesh_001_test_splatting_membrane
   output_name: mesh_001
 
 
@@ -42,7 +42,7 @@ renderer:
   # Options:
   #   voxel_grid
   #   gaussian_splatting
-  method: voxel_grid
+  method: gaussian_splatting 
 
   # Options:
   #   membrane
