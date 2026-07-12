@@ -20,7 +20,7 @@ input:
 
 
 output:
-  output_dir: outputs/mesh_001_test_pseudofilled
+  output_dir: outputs/mesh_001_test_membrane
   output_name: mesh_001
 
 
@@ -47,7 +47,7 @@ renderer:
   # Options:
   #   membrane
   #   pseudofilled
-  labeling_mode: pseudofilled
+  labeling_mode: membrane
 
   # Used by voxel_grid and gaussian_splatting
   spacing_nm: 100
