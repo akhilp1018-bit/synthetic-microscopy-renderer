@@ -10,7 +10,7 @@ def load_mesh(mesh_path: str | Path) -> trimesh.Trimesh:
     if not mesh_path.exists():
         raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
 
-    mesh = trimesh.load(mesh_path, process=False)
+    mesh = trimesh.load(mesh_path, force="mesh", process=False)
 
     if isinstance(mesh, trimesh.Scene):
         parts = [

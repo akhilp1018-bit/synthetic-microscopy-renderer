@@ -132,6 +132,30 @@ def threshold_mask(vol, rel_threshold):
     return mask
 
 
+def get_output_shape_from_config(grid_cfg):
+    shape_mode = grid_cfg.get("shape_mode", "auto")
+
+    if shape_mode == "auto":
+        return None
+
+    if shape_mode == "fixed":
+        if "output_shape_zyx" not in grid_cfg:
+            raise ValueError(
+                "grid.output_shape_zyx must be set when grid.shape_mode is 'fixed'"
+            )
+
+        output_shape_zyx = tuple(int(v) for v in grid_cfg["output_shape_zyx"])
+
+        if len(output_shape_zyx) != 3:
+            raise ValueError(
+                "grid.output_shape_zyx must have three values in order [Z, Y, X]"
+            )
+
+        return output_shape_zyx
+
+    raise ValueError("grid.shape_mode must be 'auto' or 'fixed'")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -167,9 +191,6 @@ def main():
     print(f"Output     : {output_dir}")
     print("=" * 60)
 
-    # ------------------------------------------------------------
-    # Input preparation
-    # ------------------------------------------------------------
     if input_mode == "single_mesh":
         mesh_path = resolve_path(input_cfg["mesh_path"])
 
@@ -204,9 +225,6 @@ def main():
             "input.mode must be 'single_mesh' or 'labelled_components'"
         )
 
-    # ------------------------------------------------------------
-    # Grid
-    # ------------------------------------------------------------
     bbox_dict = get_combined_bbox_nm(all_sim_paths)
 
     print("\nCombined bbox nm:")
@@ -229,20 +247,17 @@ def main():
         )
         print("Using full bbox.")
 
+    output_shape_zyx = get_output_shape_from_config(grid_cfg)
+
     grid = compute_voxel_grid(
         render_bbox,
         xy_um_per_px=float(grid_cfg["xy_um_per_px"]),
         z_step_um=float(grid_cfg["z_step_um"]),
+        output_shape_zyx=output_shape_zyx,
     )
 
-    # ------------------------------------------------------------
-    # PSF
-    # ------------------------------------------------------------
     psf_eff, psf_mode = load_effective_psf(config, grid_cfg, device)
 
-    # ------------------------------------------------------------
-    # Render single mesh
-    # ------------------------------------------------------------
     if input_mode == "single_mesh":
         vol = render_one_mesh(
             sim_mesh_path,
@@ -279,16 +294,16 @@ def main():
             "renderer": method,
             "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
             "psf_mode": psf_mode,
-            "splatting_apply_psf": bool(config.get("splatting", {}).get("apply_psf", False)),
+            "splatting_apply_psf": bool(
+                config.get("splatting", {}).get("apply_psf", False)
+            ),
+            "shape_mode": grid_cfg.get("shape_mode", "auto"),
+            "output_shape_zyx": list(grid["shape_zyx"]),
             "device": str(device),
             "image_path": image_path,
             "mask_path": mask_path,
-            "shape_zyx": list(grid["shape_zyx"]),
         }
 
-    # ------------------------------------------------------------
-    # Render labelled components
-    # ------------------------------------------------------------
     else:
         print("\n--- Rendering dendrite ---")
 
@@ -379,9 +394,6 @@ def main():
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
-        # --------------------------------------------------------
-        # Individual spine masks
-        # --------------------------------------------------------
         if bool(mask_cfg.get("save_individual_spine_masks", True)):
             print("\n--- Saving individual spine masks ---")
 
@@ -427,13 +439,16 @@ def main():
             "renderer": method,
             "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
             "psf_mode": psf_mode,
-            "splatting_apply_psf": bool(config.get("splatting", {}).get("apply_psf", False)),
+            "splatting_apply_psf": bool(
+                config.get("splatting", {}).get("apply_psf", False)
+            ),
+            "shape_mode": grid_cfg.get("shape_mode", "auto"),
+            "output_shape_zyx": list(grid["shape_zyx"]),
             "device": str(device),
             "num_spines": len(sim_spine_paths),
             "image_path": image_path,
             "spine_mask_path": spine_mask_path,
             "dendrite_mask_path": dendrite_mask_path,
-            "shape_zyx": list(grid["shape_zyx"]),
         }
 
     metadata_path = save_metadata_json(
