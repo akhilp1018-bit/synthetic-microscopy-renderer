@@ -78,13 +78,10 @@ zstack_*_object_mask.tif
 metadata_*.json
 
 
-For `labelled_components` mode, the expected outputs are:
+For `labelled_components` mode, the expected outputs are :
 
 zstack_*_image.tif
 zstack_*_dendrite_mask.tif
 zstack_*_spine_mask.tif
 metadata_*.json
-
-
-
 
