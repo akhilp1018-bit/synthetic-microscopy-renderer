@@ -48,10 +48,12 @@ psfs/
 
 ## Installation
 
-Create or activate a Python environment, then install the requirements:
+Create a Python environment and install the dependencies:
 
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
 
 ## Run one example
 

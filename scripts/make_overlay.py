@@ -46,15 +46,16 @@ def save_overlay(path: Path, image_mip: np.ndarray, spine_mip: np.ndarray, dendr
 
     rgb = np.stack([image, image, image], axis=-1)
 
-    # Dendrite overlay: green
-    rgb[dendrite, 0] = 0.0
-    rgb[dendrite, 1] = 1.0
-    rgb[dendrite, 2] = 0.0
+    # Use color-blind-friendlier colors:
+    # dendrite = cyan-blue
+    # spine = orange
+    dendrite_color = np.array([0.0, 0.7, 1.0], dtype=np.float32)
+    spine_color = np.array([1.0, 0.6, 0.0], dtype=np.float32)
 
-    # Spine overlay: red
-    rgb[spine, 0] = 1.0
-    rgb[spine, 1] = 0.0
-    rgb[spine, 2] = 0.0
+    alpha = 0.65
+
+    rgb[dendrite] = (1.0 - alpha) * rgb[dendrite] + alpha * dendrite_color
+    rgb[spine] = (1.0 - alpha) * rgb[spine] + alpha * spine_color
 
     plt.figure(figsize=(8, 8))
     plt.imshow(rgb)
