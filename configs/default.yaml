@@ -113,7 +113,7 @@ grid:
   #   false = render full mesh bounding box
   #   true  = render centered XY crop around the mesh/labelled components
   #
-  use_roi: true
+  use_roi: false
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
@@ -183,7 +183,7 @@ renderer:
 
   # Approximate surface sampling spacing in nanometres.
   # Smaller values give denser sampling but are slower.
-  spacing_nm: 150
+  spacing_nm: 200
 
   # Number of mesh faces processed per batch in voxel_grid mode.
   # Lower this if GPU memory is limited.
@@ -219,7 +219,7 @@ splatting:
 
   # Surface point sampling spacing in nanometres.
   # Smaller values sample more points and increase runtime/memory.
-  spacing_nm: 100
+  spacing_nm: 200
 
   # Gaussian splat width in voxel units: [Z, Y, X]
   sigma_zyx: [0.5, 0.8, 0.8]
