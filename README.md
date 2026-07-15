@@ -50,7 +50,6 @@ psfs/
 
 Create a Python environment and install the dependencies:
 
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -63,8 +62,7 @@ From the repository root, run:
 PYTHONPATH=. python scripts/render.py --config configs/default.yaml
 
 
-On the HPC, the current environment can be used with:
-
+On the FAU HPC, I currently use my existing thesis environment:
 
 PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/default.yaml
 
