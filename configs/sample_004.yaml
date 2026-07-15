@@ -342,8 +342,8 @@ masks:
 
   # Save one mask per individual spine.
   # Used only in labelled_components mode.
-  save_individual_spine_masks: false
+  save_individual_spine_masks: true
 
   # Save clean rendered dendrite/spine component images before combining.
   # Used only in labelled_components mode.
-  save_clean_component_images: false
+  save_clean_component_images: true
