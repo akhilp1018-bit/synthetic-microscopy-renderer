@@ -10,6 +10,10 @@ This script makes maximum-intensity-projection previews for:
 Run from repository root:
 
     PYTHONPATH=. python scripts/make_overlay.py --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
+
+    for HPC my account
+
+    PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/make_overlay.py --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
 """
 
 from pathlib import Path

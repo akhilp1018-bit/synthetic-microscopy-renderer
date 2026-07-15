@@ -47,7 +47,7 @@ input:
   mesh_path: data/mesh_001/mesh_001.ply
 
   # Used when mode: labelled_components.
-  labelled_dir: data/sample_001
+  labelled_dir: data/sample_002
   dendrite_pattern: dendrite*.ply
   spine_pattern: spine*.ply
 
@@ -57,8 +57,17 @@ input:
   #   1.0        if mesh coordinates are already in nm
   #   1000.0     if mesh coordinates are in µm
   #   1000000.0  if mesh coordinates are in mm
-  #
-  scale_to_nm: 1000000  #for sample_1= 1000000
+
+
+
+  # Known labelled-component samples:
+  #   mesh_001: 1.0
+  #   sample_001: 1000000.0  # coordinates appear to be in mm
+  #   sample_002: 1000.0     # coordinates appear to be in µm
+  #   sample_003: 1000.0     # coordinates appear to be in µm
+  #   sample_004: 1.0        # coordinates appear to be in nm
+  scale_to_nm: 1000    #default is 1.0
+ 
 
   # If true, subtract the mean vertex position before rendering.
   # Usually keep false when meshes are already in a meaningful coordinate system.
@@ -84,8 +93,8 @@ output:
   #   zstack_sample_001_spine_mask.tif
   #   metadata_sample_001.json
   #
-  output_dir: outputs/sample_001/gaussian_2p_voxelgrid_membrane
-  output_name: sample_001
+  output_dir: outputs/sample_002/gaussian_2p_voxelgrid_membrane
+  output_name: sample_002
 
 
 grid:
