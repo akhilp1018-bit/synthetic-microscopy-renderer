@@ -62,11 +62,11 @@ input:
 
   # Known labelled-component samples:
   #   mesh_001  :   1.0
-  #   sample_001: 1000000.0  # coordinates appear to be in mm
-  #   sample_002: 1000000.0     # coordinates appear to be in µm
-  #   sample_003: 1000.0     # coordinates appear to be in µm
-  #   sample_004: 1.0        # coordinates appear to be in nm
-  scale_to_nm: 10000.0
+  #   sample_001: 100000.0  
+  #   sample_002: 1000000.0     
+  #   sample_003: 1000.0    
+  #   sample_004: 1.0        
+  scale_to_nm: 100000
  
 
   # If true, subtract the mean vertex position before rendering.
