@@ -1,3 +1,29 @@
+"""
+Voxel-grid renderer.
+
+This renderer converts mesh geometry into a voxel density volume and then
+applies PSF convolution to create a synthetic microscopy stack.
+
+Pipeline:
+    mesh surface
+    -> voxel density volume
+    -> optional density smoothing / pseudofill
+    -> PSF convolution
+    -> rendered image volume
+
+Coordinate convention:
+    Mesh coordinates are XYZ in nanometres.
+    Output volumes are ZYX:
+        [Z slices, Y pixels, X pixels]
+
+Supported label modes:
+    membrane:
+        Surface-based density from mesh faces.
+    pseudofilled:
+        Surface density followed by stronger smoothing to create a thicker,
+        more volume-like object.
+"""
+
 import math
 import time
 
@@ -8,6 +34,12 @@ import trimesh
 
 
 def get_device(device=None):
+    """
+    Return a Torch device.
+
+    If a device is provided, use it. Otherwise use CUDA when available,
+    falling back to CPU.
+    """
     if device is not None:
         return torch.device(device)
 
@@ -15,6 +47,9 @@ def get_device(device=None):
 
 
 def as_torch(x, device=None, dtype=torch.float32):
+    """
+    Convert input to a Torch tensor on the selected device and dtype.
+    """
     if isinstance(x, torch.Tensor):
         return x.to(device=device, dtype=dtype)
 
@@ -23,11 +58,18 @@ def as_torch(x, device=None, dtype=torch.float32):
 
 def focal_stack_from_density(rho_zyx, psf_zyx, device=None):
     """
-    Full 3D convolution in PyTorch.
+    Apply 3D PSF convolution to a density volume.
 
-    rho_zyx: (Z, Y, X)
-    psf_zyx: (Zp, Yp, Xp)
-    returns: volume (Z, Y, X)
+    Args:
+        rho_zyx:
+            Input density volume in ZYX order.
+        psf_zyx:
+            PSF kernel in ZYX order.
+        device:
+            Torch device.
+
+    Returns:
+        Rendered volume in ZYX order.
     """
     device = get_device(device)
 
@@ -37,6 +79,8 @@ def focal_stack_from_density(rho_zyx, psf_zyx, device=None):
     if rho_zyx.ndim != 3 or psf_zyx.ndim != 3:
         raise ValueError("rho_zyx and psf_zyx must both be 3D")
 
+    # PyTorch conv3d performs cross-correlation, so flip the PSF to obtain
+    # convolution behaviour.
     kernel = torch.flip(psf_zyx, dims=(0, 1, 2))
 
     inp = rho_zyx.unsqueeze(0).unsqueeze(0)
@@ -50,6 +94,12 @@ def focal_stack_from_density(rho_zyx, psf_zyx, device=None):
 
 
 def _triangle_barycentric_grid(m, device):
+    """
+    Create barycentric sampling coordinates for one triangle.
+
+    The parameter m controls the sampling density. Higher m creates more
+    barycentric points inside the triangle.
+    """
     if m <= 0:
         return torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32, device=device)
 
@@ -79,9 +129,29 @@ def mesh_to_density_zyx(
     batch_faces=2048,
 ):
     """
-    Membrane mode.
+    Convert mesh surface triangles into a ZYX voxel density volume.
 
-    Converts the mesh surface into a voxel density grid.
+    Each mesh face is sampled using barycentric points. Sampled points are
+    mapped into voxel coordinates and accumulated into a density grid.
+
+    Args:
+        mesh_path:
+            Path to input mesh.
+        origin_nm:
+            Physical XYZ origin of the voxel grid in nanometres.
+        voxel_size_nm_xyz:
+            Voxel size in XYZ order, in nanometres.
+        shape_zyx:
+            Output volume shape in [Z, Y, X] order.
+        spacing_nm:
+            Approximate surface sampling spacing in nanometres.
+        device:
+            Torch device.
+        batch_faces:
+            Number of faces processed per batch.
+
+    Returns:
+        Density volume as Torch tensor in ZYX order.
     """
     device = get_device(device)
 
@@ -117,6 +187,7 @@ def mesh_to_density_zyx(
     v1 = tris[:, 1, :]
     v2 = tris[:, 2, :]
 
+    # Triangle surface areas determine how many samples each face receives.
     areas = 0.5 * torch.linalg.norm(torch.cross(v1 - v0, v2 - v0, dim=1), dim=1)
 
     valid_faces = areas > 0
@@ -159,11 +230,12 @@ def mesh_to_density_zyx(
 
             pts = pts.reshape(-1, 3)
 
+            # Convert physical XYZ coordinates to voxel indices.
             ix = torch.floor((pts[:, 0] - x0) / sx).long()
             iy = torch.floor((pts[:, 1] - y0) / sy).long()
             iz = torch.floor((pts[:, 2] - z0) / sz).long()
 
-            # Keep old image coordinate convention
+            # Match the image coordinate convention used by saved TIFF stacks.
             iy = (Y - 1) - iy
 
             valid = (
@@ -189,6 +261,9 @@ def mesh_to_density_zyx(
 
 
 def gaussian_kernel1d_torch(sigma, truncate=3.0, device=None, dtype=torch.float32):
+    """
+    Create a normalized 1D Gaussian kernel as a Torch tensor.
+    """
     device = get_device(device)
 
     if sigma <= 0:
@@ -210,6 +285,22 @@ def smooth_density_zyx(
     normalize_sum=True,
     device=None,
 ):
+    """
+    Smooth a ZYX density volume using separable Gaussian convolution.
+
+    Args:
+        rho_zyx:
+            Input density volume in ZYX order.
+        sigma_zyx:
+            Gaussian sigma in voxel units, ordered [Z, Y, X].
+        normalize_sum:
+            If True, preserve total density sum after smoothing.
+        device:
+            Torch device.
+
+    Returns:
+        Smoothed density volume in ZYX order.
+    """
     device = get_device(device)
 
     rho_zyx = as_torch(rho_zyx, device=device, dtype=torch.float32)
@@ -254,11 +345,10 @@ def mesh_pseudofilled_to_density_zyx(
     pseudofill_sigma_zyx=(2.0, 2.5, 2.5),
 ):
     """
-    Pseudofilled mode.
+    Create a pseudofilled density volume from a mesh.
 
-    First creates membrane/surface density.
-    Then applies stronger smoothing/pseudofill to make the object thicker
-    and more volume-like.
+    First a membrane/surface density is created. Then stronger smoothing is
+    applied to make the object thicker and more volume-like.
     """
     rho = mesh_to_density_zyx(
         mesh_path=mesh_path,
@@ -281,6 +371,11 @@ def mesh_pseudofilled_to_density_zyx(
 
 
 def ensure_psf_odd_xy(psf_zyx, renormalize=False, device=None):
+    """
+    Ensure PSF has odd Y and X dimensions.
+
+    Odd XY dimensions make the PSF centre well defined for convolution.
+    """
     device = get_device(device)
 
     psf_zyx = as_torch(psf_zyx, device=device, dtype=torch.float32)
@@ -320,6 +415,12 @@ def build_density_for_mesh(
     density_smooth_sigma_zyx=(0.6, 0.8, 0.8),
     density_normalize_sum=True,
 ):
+    """
+    Build a density volume for one mesh using the selected label mode.
+
+    This function handles both membrane and pseudofilled density generation,
+    then applies the final small density smoothing step.
+    """
     print(f"\n{'=' * 50}")
     print(f"Building density: {tag}")
     print(f"Mesh: {mesh_path}")
@@ -385,6 +486,9 @@ def build_density_for_mesh(
 
 
 def render_density(rho, psf_eff, tag, device):
+    """
+    Render a density volume by applying PSF convolution.
+    """
     t0 = time.time()
 
     vol = focal_stack_from_density(rho, psf_eff, device=device)
@@ -407,6 +511,14 @@ def render_single_mesh_voxel(
     config,
     device,
 ):
+    """
+    Render a single mesh with the voxel-grid renderer.
+
+    The renderer configuration is read from config["renderer"].
+
+    Returns:
+        Rendered image volume in ZYX order.
+    """
     renderer_cfg = config["renderer"]
 
     rho = build_density_for_mesh(

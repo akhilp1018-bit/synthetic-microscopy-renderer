@@ -1,8 +1,35 @@
+"""
+Point spread function utilities.
+
+This module handles:
+    - loading PSF TIFF files
+    - converting PSF arrays to ZYX order
+    - optionally converting a 1-photon PSF to a simple 2-photon-like PSF
+    - generating an analytical Gaussian PSF
+
+Coordinate convention:
+    PSF arrays are returned in ZYX order:
+    [Z slices, Y pixels, X pixels].
+"""
+
 import numpy as np
 import tifffile
 
 
 def _move_psf_to_zyx(arr: np.ndarray) -> np.ndarray:
+    """
+    Move a 3D PSF array to ZYX order.
+
+    Some PSF files may not be saved with Z as the first axis. This function
+    assumes the Z axis is the smallest dimension and moves it to axis 0.
+
+    Args:
+        arr:
+            Input 3D PSF array.
+
+    Returns:
+        PSF array in ZYX order.
+    """
     if arr.ndim != 3:
         raise ValueError(f"PSF must be 3D, got shape {arr.shape}")
 
@@ -20,6 +47,23 @@ def load_psf_zyx(
     clip_negative: bool = True,
     verbose: bool = True,
 ) -> np.ndarray:
+    """
+    Load a PSF TIFF file and return a normalized ZYX PSF.
+
+    Args:
+        path:
+            Path to PSF TIFF file.
+        two_photon_like:
+            If True, square the PSF before normalization. This is a simple
+            approximation for a two-photon-like excitation profile.
+        clip_negative:
+            If True, negative values are clipped to zero.
+        verbose:
+            If True, print PSF information.
+
+    Returns:
+        Normalized PSF as float32 NumPy array in ZYX order.
+    """
     arr = tifffile.imread(path).astype(np.float32)
     arr = _move_psf_to_zyx(arr)
 
@@ -43,6 +87,9 @@ def load_psf_zyx(
 
 
 def fwhm_to_sigma(fwhm: float) -> float:
+    """
+    Convert full width at half maximum to Gaussian sigma.
+    """
     return fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 
@@ -58,10 +105,43 @@ def make_gaussian_psf_matched_zyx(
     two_photon_like=True,
     verbose=True,
 ) -> np.ndarray:
+    """
+    Create an analytical Gaussian PSF matched to the image sampling.
+
+    The Gaussian width is estimated from simple diffraction-based FWHM
+    approximations and converted into pixel units using the configured XY and Z
+    sampling.
+
+    Args:
+        shape_zyx:
+            Output PSF shape in [Z, Y, X] order.
+        lambda_nm:
+            Excitation/emission wavelength parameter in nanometres.
+        na:
+            Numerical aperture.
+        n:
+            Refractive index.
+        xy_um_per_px:
+            XY pixel size in micrometres.
+        z_step_um:
+            Z slice spacing in micrometres.
+        sigma_scale_xy:
+            Optional scale factor for lateral PSF width.
+        sigma_scale_z:
+            Optional scale factor for axial PSF width.
+        two_photon_like:
+            If True, square the Gaussian PSF before normalization.
+        verbose:
+            If True, print PSF information.
+
+    Returns:
+        Normalized Gaussian PSF as float32 NumPy array in ZYX order.
+    """
     pz, py, px = map(int, shape_zyx)
 
     lam_um = lambda_nm * 1e-3
 
+    # Simple diffraction-based FWHM approximations.
     fwhm_xy_um = 0.61 * lam_um / na
     fwhm_z_um = (2.0 * n * lam_um) / (na ** 2)
 

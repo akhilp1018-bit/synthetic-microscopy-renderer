@@ -1,10 +1,47 @@
+"""
+Mesh loading and preparation utilities.
+
+This module handles:
+    - loading PLY/mesh files with trimesh
+    - optional coordinate scaling to nanometres
+    - optional recentering
+    - bounding-box extraction
+    - locating labelled dendrite/spine component meshes
+
+Coordinate convention:
+    Mesh coordinates are expected as XYZ.
+    After preparation, coordinates are interpreted in nanometres.
+"""
+
 from pathlib import Path
 import tempfile
+
 import numpy as np
 import trimesh
 
 
 def load_mesh(mesh_path: str | Path) -> trimesh.Trimesh:
+    """
+    Load a mesh file as a trimesh.Trimesh object.
+
+    If the file contains a trimesh.Scene with multiple geometries, the
+    geometries are concatenated into one mesh.
+
+    Args:
+        mesh_path:
+            Path to the mesh file.
+
+    Returns:
+        Loaded mesh as trimesh.Trimesh.
+
+    Raises:
+        FileNotFoundError:
+            If the mesh file does not exist.
+        ValueError:
+            If no valid geometry, vertices, or faces are found.
+        TypeError:
+            If the loaded object is not a Trimesh.
+    """
     mesh_path = Path(mesh_path)
 
     if not mesh_path.exists():
@@ -43,8 +80,24 @@ def prepare_mesh_for_sim(
     """
     Prepare one mesh for simulation.
 
-    If no scaling/recentering is needed, returns the original path.
-    If scaling/recentering is needed, writes a temporary PLY and returns that path.
+    The renderer expects mesh coordinates in nanometres. If the input mesh is
+    already in nanometres, use scale_to_nm=1.0. If the input mesh is in another
+    unit, scale_to_nm can be used to convert it to nanometres.
+
+    If no scaling or recentering is requested, the original mesh path is
+    returned. If preprocessing is required, a temporary PLY file is written and
+    the path to that temporary file is returned.
+
+    Args:
+        mesh_path:
+            Path to input mesh.
+        scale_to_nm:
+            Multiplication factor used to convert mesh coordinates to nm.
+        recenter:
+            If True, subtract the mean vertex position from all vertices.
+
+    Returns:
+        Path to the mesh used for simulation.
     """
     mesh_path = Path(mesh_path)
 
@@ -78,8 +131,10 @@ def prepare_mesh_for_sim(
 
 def load_bbox_nm(mesh_path: str | Path) -> tuple[float, float, float, float, float, float]:
     """
-    Return mesh bounding box in nm:
-    xmin, ymin, zmin, xmax, ymax, zmax
+    Return the mesh bounding box in nanometres.
+
+    Returns:
+        xmin, ymin, zmin, xmax, ymax, zmax
     """
     mesh = load_mesh(mesh_path)
     bounds = mesh.bounds
@@ -95,6 +150,12 @@ def load_bbox_nm(mesh_path: str | Path) -> tuple[float, float, float, float, flo
 
 
 def get_combined_bbox_nm(mesh_paths: list[str | Path]) -> dict:
+    """
+    Compute one bounding box covering multiple meshes.
+
+    This is used for labelled components, where dendrite and spine meshes
+    should be rendered into the same output coordinate system.
+    """
     bboxes = [load_bbox_nm(p) for p in mesh_paths]
 
     return {
@@ -112,6 +173,30 @@ def find_labelled_component_paths(
     dendrite_pattern: str = "dendrite*.ply",
     spine_pattern: str = "spine*.ply",
 ) -> tuple[Path, list[Path]]:
+    """
+    Find dendrite and spine mesh files in a labelled component folder.
+
+    Expected folder example:
+        sample_001/
+            dendrite00.ply
+            spine001.ply
+            spine002.ply
+            ...
+
+    Args:
+        labelled_dir:
+            Folder containing labelled component meshes.
+        dendrite_pattern:
+            Glob pattern for dendrite mesh files.
+        spine_pattern:
+            Glob pattern for spine mesh files.
+
+    Returns:
+        dendrite_path:
+            Path to the selected dendrite mesh.
+        spine_paths:
+            Sorted list of spine mesh paths.
+    """
     labelled_dir = Path(labelled_dir)
 
     if not labelled_dir.exists():
@@ -151,6 +236,12 @@ def prepare_labelled_components_for_sim(
     scale_to_nm: float = 1.0,
     recenter: bool = False,
 ) -> tuple[str, list[str]]:
+    """
+    Prepare dendrite and spine component meshes for simulation.
+
+    All components should use the same coordinate system so that the rendered
+    image, dendrite mask, and spine mask are spatially aligned.
+    """
     sim_dendrite_path = prepare_mesh_for_sim(
         dendrite_path,
         scale_to_nm=scale_to_nm,

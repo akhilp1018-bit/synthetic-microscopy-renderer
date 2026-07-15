@@ -1,9 +1,30 @@
+"""
+
+This script reads a YAML config file, loads mesh geometry, builds an output
+voxel grid, renders a synthetic microscopy stack, and saves image/mask/metadata.
+
+Coordinate convention:
+    - Mesh coordinates are XYZ in nanometres.
+    - Output arrays/images are ZYX: [Z slices, Y pixels, X pixels].
+
+Supported input modes:
+    - single_mesh: one mesh is rendered and one object mask is saved.
+    - labelled_components: dendrite and spine meshes are rendered separately,
+      allowing separate dendrite and spine ground-truth masks.
+
+Supported renderers:
+    - voxel_grid
+    - gaussian_splatting
+"""
+
 import argparse
 import sys
 from pathlib import Path
 
 import torch
 
+# Allow imports from the repository root when running:
+# PYTHONPATH=. python scripts/render.py --config configs/default.yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
@@ -33,6 +54,19 @@ from src.io_utils import (
 
 
 def load_effective_psf(config, grid_cfg, device):
+    """
+    Load or generate the effective PSF used for image formation.
+
+    The PSF represents the microscope blur. For Born-Wolf PSFs, the PSF is
+    loaded from a TIFF file. For gaussian_2p, an analytical Gaussian PSF is
+    generated from the config.
+
+    Returns:
+        psf_eff:
+            Torch tensor PSF in ZYX order.
+        psf_mode:
+            Name of the PSF mode used.
+    """
     psf_cfg = config["psf"]
     psf_mode = psf_cfg.get("mode", "bornwolf_2p")
 
@@ -41,6 +75,7 @@ def load_effective_psf(config, grid_cfg, device):
 
         two_photon_like = bool(psf_cfg.get("two_photon_like", False))
 
+        # Force correct behaviour from the selected named PSF mode.
         if psf_mode == "bornwolf_1p":
             two_photon_like = False
 
@@ -70,12 +105,20 @@ def load_effective_psf(config, grid_cfg, device):
     else:
         raise ValueError(f"Unknown PSF mode: {psf_mode}")
 
+    # Some convolution operations work more cleanly with odd XY dimensions.
+    # This also keeps the PSF centre well defined.
     psf_eff = ensure_psf_odd_xy(psf_eff, renormalize=True, device=device)
 
     return psf_eff, psf_mode
 
 
 def render_one_mesh(mesh_path, grid, psf_eff, config, device, tag):
+    """
+    Render one mesh using the renderer selected in the config.
+
+    This function is a small dispatcher. It keeps the main script independent
+    of the specific rendering implementation.
+    """
     method = config["renderer"].get("method", "voxel_grid")
 
     if method == "voxel_grid":
@@ -101,6 +144,11 @@ def render_one_mesh(mesh_path, grid, psf_eff, config, device, tag):
 
 
 def save_volume(vol, out_dir, tag, grid_cfg):
+    """
+    Save a rendered floating-point volume as a uint16 ImageJ TIFF stack.
+
+    The volume is expected in ZYX order.
+    """
     path = save_stack_imagej_zyx_u16(
         out_dir=out_dir,
         tag=tag,
@@ -113,6 +161,11 @@ def save_volume(vol, out_dir, tag, grid_cfg):
 
 
 def save_mask(mask, out_dir, tag, grid_cfg):
+    """
+    Save a binary mask as a uint16 ImageJ TIFF stack.
+
+    The mask is expected in ZYX order.
+    """
     path = save_stack_imagej_zyx_u16(
         out_dir=out_dir,
         tag=tag,
@@ -125,6 +178,13 @@ def save_mask(mask, out_dir, tag, grid_cfg):
 
 
 def threshold_mask(vol, rel_threshold):
+    """
+    Create a binary mask from a rendered component volume.
+
+    The threshold is relative to the maximum intensity of that component.
+    Example:
+        rel_threshold = 0.1 means threshold = 10% of max intensity.
+    """
     vmax = float(vol.max().item())
     threshold = rel_threshold * vmax if vmax > 0 else 0.0
     mask = (vol > threshold).to(torch.float32)
@@ -133,6 +193,18 @@ def threshold_mask(vol, rel_threshold):
 
 
 def get_output_shape_from_config(grid_cfg):
+    """
+    Read the output shape mode from the config.
+
+    shape_mode:
+        auto:
+            The output shape is computed from the mesh bbox or ROI.
+        fixed:
+            The output shape is taken from output_shape_zyx.
+
+    Important:
+        output_shape_zyx order is [Z, Y, X], matching the saved image array.
+    """
     shape_mode = grid_cfg.get("shape_mode", "auto")
 
     if shape_mode == "auto":
@@ -157,6 +229,18 @@ def get_output_shape_from_config(grid_cfg):
 
 
 def main():
+    """
+    Main rendering workflow.
+
+    Steps:
+        1. Load config.
+        2. Prepare input meshes.
+        3. Build the output voxel grid.
+        4. Load/generate PSF.
+        5. Render image stack.
+        6. Generate masks.
+        7. Save image, masks, and metadata.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
@@ -191,6 +275,16 @@ def main():
     print(f"Output     : {output_dir}")
     print("=" * 60)
 
+    # ------------------------------------------------------------
+    # Input preparation
+    # ------------------------------------------------------------
+    # single_mesh:
+    #     Render one mesh and create one object mask.
+    #
+    # labelled_components:
+    #     Render dendrite and spines separately so that separate GT masks
+    #     can be generated for dendrite and spine classes.
+    # ------------------------------------------------------------
     if input_mode == "single_mesh":
         mesh_path = resolve_path(input_cfg["mesh_path"])
 
@@ -225,6 +319,13 @@ def main():
             "input.mode must be 'single_mesh' or 'labelled_components'"
         )
 
+    # ------------------------------------------------------------
+    # Grid / ROI creation
+    # ------------------------------------------------------------
+    # The combined bounding box defines the physical region that can be
+    # rendered. The final render region can be the full bbox or a cropped ROI.
+    # The voxel grid stores origin, voxel size, and output shape.
+    # ------------------------------------------------------------
     bbox_dict = get_combined_bbox_nm(all_sim_paths)
 
     print("\nCombined bbox nm:")
@@ -256,8 +357,17 @@ def main():
         output_shape_zyx=output_shape_zyx,
     )
 
+    # ------------------------------------------------------------
+    # PSF loading
+    # ------------------------------------------------------------
+    # The PSF is applied during rendering as the microscope image-formation
+    # step. This converts a density/splat volume into a microscopy-like stack.
+    # ------------------------------------------------------------
     psf_eff, psf_mode = load_effective_psf(config, grid_cfg, device)
 
+    # ------------------------------------------------------------
+    # Render mode: single mesh
+    # ------------------------------------------------------------
     if input_mode == "single_mesh":
         vol = render_one_mesh(
             sim_mesh_path,
@@ -268,6 +378,7 @@ def main():
             tag="single_mesh",
         )
 
+        # Noise can be disabled for clean data generation or enabled for noisy simulations.
         vol = apply_noise_if_enabled(vol, config)
 
         image_path = save_volume(
@@ -277,6 +388,7 @@ def main():
             grid_cfg,
         )
 
+        # For single_mesh mode, only one binary object mask is produced.
         mask = make_object_mask_from_volume(
             vol,
             rel_threshold=float(mask_cfg.get("object_rel_threshold", 0.1)),
@@ -304,6 +416,12 @@ def main():
             "mask_path": mask_path,
         }
 
+    # ------------------------------------------------------------
+    # Render mode: labelled components
+    # ------------------------------------------------------------
+    # Dendrite and spine components are rendered separately. This is slower,
+    # but it gives separate clean volumes and separate GT masks.
+    # ------------------------------------------------------------
     else:
         print("\n--- Rendering dendrite ---")
 
@@ -337,6 +455,7 @@ def main():
             if device.type == "cuda":
                 torch.cuda.empty_cache()
 
+        # Combined clean image contains dendrite + spine signal.
         vol_all = vol_dendrite + vol_spines
         vol_all = apply_noise_if_enabled(vol_all, config)
 
@@ -347,6 +466,7 @@ def main():
             grid_cfg,
         )
 
+        # Optional clean component images help debugging mask alignment.
         if bool(mask_cfg.get("save_clean_component_images", True)):
             save_volume(
                 vol_dendrite,
@@ -394,6 +514,8 @@ def main():
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
+        # Optional: save one mask per individual spine.
+        # This is useful for instance-level evaluation, but can take longer.
         if bool(mask_cfg.get("save_individual_spine_masks", True)):
             print("\n--- Saving individual spine masks ---")
 
@@ -451,6 +573,12 @@ def main():
             "dendrite_mask_path": dendrite_mask_path,
         }
 
+    # ------------------------------------------------------------
+    # Save metadata
+    # ------------------------------------------------------------
+    # Metadata records the settings and output paths needed to reproduce
+    # or inspect the generated image/mask stack.
+    # ------------------------------------------------------------
     metadata_path = save_metadata_json(
         output_dir,
         tag=f"{output_name}_{method}_{psf_mode}",

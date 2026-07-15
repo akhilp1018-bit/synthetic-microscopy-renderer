@@ -1,7 +1,38 @@
+"""
+ROI and voxel-grid utilities.
+
+This module defines the physical region to render and converts it into an
+image grid.
+
+Coordinate convention:
+    Input bounding boxes are in mesh/world XYZ coordinates in nanometres.
+
+    Output image arrays are ZYX:
+        [Z slices, Y pixels, X pixels]
+
+    Voxel size is stored in XYZ order:
+        (voxel_x_nm, voxel_y_nm, voxel_z_nm)
+"""
+
 import numpy as np
 
 
 def compute_full_bbox(bbox_dict: dict, margin: float = 0.05) -> dict:
+    """
+    Expand the XY bounding box by a relative margin.
+
+    Z limits are kept unchanged because Z depth is usually defined directly
+    by the mesh extent.
+
+    Args:
+        bbox_dict:
+            Dictionary with xmin, xmax, ymin, ymax, zmin, zmax in nm.
+        margin:
+            Relative XY margin. Example: 0.05 adds 5% margin on each side.
+
+    Returns:
+        Expanded bounding box dictionary in nm.
+    """
     xmin0 = bbox_dict["xmin"]
     xmax0 = bbox_dict["xmax"]
     ymin0 = bbox_dict["ymin"]
@@ -26,6 +57,26 @@ def compute_roi_bbox(
     roi_size_um_y: float,
     margin: float = 0.05,
 ) -> dict:
+    """
+    Create a centered XY region of interest from the mesh bounding box.
+
+    The ROI is centered on the expanded full bounding box. The ROI size is
+    specified in micrometres for X and Y. Z limits are kept from the mesh
+    bounding box.
+
+    Args:
+        bbox_dict:
+            Mesh bounding box in nm.
+        roi_size_um_x:
+            ROI width in X, in micrometres.
+        roi_size_um_y:
+            ROI width in Y, in micrometres.
+        margin:
+            Relative XY margin used before computing the center.
+
+    Returns:
+        ROI bounding box dictionary in nm.
+    """
     full = compute_full_bbox(bbox_dict, margin=margin)
 
     cx_nm = 0.5 * (full["xmin"] + full["xmax"])
@@ -50,6 +101,35 @@ def compute_voxel_grid(
     z_step_um: float,
     output_shape_zyx=None,
 ) -> dict:
+    """
+    Convert a physical render bounding box into a voxel grid.
+
+    Auto mode:
+        If output_shape_zyx is None, the output shape is computed from the
+        render bounding box and voxel size.
+
+    Fixed mode:
+        If output_shape_zyx is provided, the output shape is fixed and the
+        grid is centered on the render bounding box. This is useful for
+        fixed-size patches, but the selected center must contain geometry.
+
+    Args:
+        render_bbox:
+            Bounding box to render in nm.
+        xy_um_per_px:
+            XY pixel size in micrometres.
+        z_step_um:
+            Z slice spacing in micrometres.
+        output_shape_zyx:
+            Optional fixed output shape in [Z, Y, X] order.
+
+    Returns:
+        Dictionary containing:
+            W, H, NUM_SLICES
+            origin_nm
+            voxel_size_nm_xyz
+            shape_zyx
+    """
     xmin = float(render_bbox["xmin"])
     xmax = float(render_bbox["xmax"])
     ymin = float(render_bbox["ymin"])
@@ -71,11 +151,14 @@ def compute_voxel_grid(
         Z = int(np.ceil((zmax - zmin) / voxel_z_nm)) + 1
         shape_zyx = (Z, H, W)
         shape_mode = "auto"
+
     else:
         shape_zyx = tuple(int(v) for v in output_shape_zyx)
         Z, H, W = shape_zyx
         shape_mode = "fixed"
 
+        # In fixed-shape mode, keep the requested shape and center it on
+        # the selected render bounding box.
         cx_nm = 0.5 * (xmin + xmax)
         cy_nm = 0.5 * (ymin + ymax)
         cz_nm = 0.5 * (zmin + zmax)

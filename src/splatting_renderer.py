@@ -1,4 +1,22 @@
+"""
+Gaussian splatting renderer.
+
+This renderer converts a mesh surface into a synthetic fluorescence volume by:
+    1. sampling continuous points on the mesh surface
+    2. accumulating a local 3D Gaussian kernel around each sampled point
+    3. optionally applying PSF convolution
+
+Coordinate convention:
+    Mesh coordinates are XYZ in nanometres.
+    Output volumes are ZYX:
+        [Z slices, Y pixels, X pixels]
+
+Note:
+    Gaussian splatting currently supports membrane-style labelling only.
+"""
+
 import math
+
 import numpy as np
 import torch
 import trimesh
@@ -7,6 +25,11 @@ from src.voxel_renderer import focal_stack_from_density
 
 
 def _load_mesh(mesh_path):
+    """
+    Load a mesh as a trimesh.Trimesh object.
+
+    If a scene is returned, all Trimesh geometries are concatenated.
+    """
     mesh = trimesh.load(mesh_path, force="mesh", process=False)
 
     if isinstance(mesh, trimesh.Scene):
@@ -24,8 +47,12 @@ def _sample_surface_points(mesh, spacing_nm=100.0, seed=0):
     """
     Sample continuous points on the mesh surface.
 
-    The number of points is estimated from the mesh surface area and the
-    requested sampling spacing.
+    The number of sampled points is estimated from the mesh surface area:
+
+        n_points approximately surface_area / spacing_nm^2
+
+    Smaller spacing gives more points and usually a smoother result, but it is
+    slower and uses more memory.
     """
     area_nm2 = float(mesh.area)
     n_points = max(1, int(math.ceil(area_nm2 / (spacing_nm ** 2))))
@@ -52,9 +79,23 @@ def _splat_points_to_volume(
     """
     Accumulate Gaussian splats from sampled mesh points into a ZYX volume.
 
-    Each point is converted from physical XYZ coordinates into continuous
-    voxel coordinates. A local 3D Gaussian kernel is then accumulated around
-    the point position.
+    Each point is converted from physical XYZ coordinates into continuous voxel
+    coordinates. A local Gaussian kernel is then added around the point.
+
+    Args:
+        points_xyz_nm:
+            Sampled surface points in XYZ nanometre coordinates.
+        grid:
+            Dictionary containing origin_nm, voxel_size_nm_xyz, and shape_zyx.
+        sigma_zyx:
+            Gaussian splat width in voxel units, ordered as [Z, Y, X].
+        device:
+            Torch device.
+        points_per_batch:
+            Number of sampled points processed per batch.
+
+    Returns:
+        Torch tensor volume in ZYX order.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,6 +108,7 @@ def _splat_points_to_volume(
 
     sigma_z, sigma_y, sigma_x = [float(v) for v in sigma_zyx]
 
+    # Use a local kernel with radius 3 sigma in each direction.
     radius_z = max(1, int(math.ceil(3.0 * sigma_z)))
     radius_y = max(1, int(math.ceil(3.0 * sigma_y)))
     radius_x = max(1, int(math.ceil(3.0 * sigma_x)))
@@ -96,10 +138,14 @@ def _splat_points_to_volume(
         device=device,
     )
 
+    # Convert physical mesh coordinates XYZ into continuous voxel coordinates.
     points_vox_xyz = (points - origin) / voxel_size
+
+    # Output arrays are ZYX. The Y axis is flipped here to match the orientation
+    # used by the voxel-grid renderer and saved TIFF stacks.
     points_vox_z = points_vox_xyz[:, 2]
     points_vox_y = (Y - 1) - points_vox_xyz[:, 1]
-    points_vox_x = points_vox_xyz[:, 0]  
+    points_vox_x = points_vox_xyz[:, 0]
 
     points_vox_zyx = torch.stack(
         [
@@ -129,6 +175,7 @@ def _splat_points_to_volume(
             (x >= 0) & (x < X)
         )
 
+        # Distance from kernel voxel locations to the continuous point location.
         dist = loc.float() - p[:, None, :]
 
         weights = torch.exp(
@@ -145,12 +192,14 @@ def _splat_points_to_volume(
         flat_idx = flat_idx[valid]
         weights = weights[valid]
 
+        # Accumulate all Gaussian contributions into the flat output volume.
         vol_flat.scatter_add_(0, flat_idx, weights)
 
         print(f"  splatted points {start} - {end} / {n_points}")
 
     vol = vol_flat.reshape(Z, Y, X)
 
+    # Normalize total intensity to the number of sampled points.
     total = vol.sum()
     if total > 0:
         vol = vol / total * float(n_points)
@@ -167,7 +216,7 @@ def render_single_mesh_splatting(
     tag="splatting",
 ):
     """
-    Render a mesh using Gaussian splatting.
+    Render one mesh using Gaussian splatting.
 
     Pipeline:
         mesh surface
@@ -175,8 +224,8 @@ def render_single_mesh_splatting(
         -> Gaussian kernel accumulation
         -> optional PSF convolution
 
-    Currently supported label mode:
-        membrane
+    Returns:
+        Rendered volume in ZYX order.
     """
     renderer_cfg = config.get("renderer", {})
     splat_cfg = config.get("splatting", {})
