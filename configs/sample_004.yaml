@@ -60,12 +60,13 @@ input:
 
 
 
-  # Known labelled-component samples:
-  #   mesh_001  :   1.0
-  #   sample_001: 1000000.0  # coordinates appear to be in mm
-  #   sample_002: 1000.0     # coordinates appear to be in µm
-  #   sample_003: 1000.0     # coordinates appear to be in µm
-  #   sample_004: 1.0        # coordinates appear to be in nm
+  # Known tested scale factors:
+  #   mesh_001   : 1.0
+  #   sample_001 : 1000000.0
+  #   sample_002 : 10000.0
+  #   sample_003 : 1000.0
+  #   sample_004 : 1.0
+
   scale_to_nm: 1.0
  
 
@@ -342,8 +343,8 @@ masks:
 
   # Save one mask per individual spine.
   # Used only in labelled_components mode.
-  save_individual_spine_masks: true
+  save_individual_spine_masks: false
 
   # Save clean rendered dendrite/spine component images before combining.
   # Used only in labelled_components mode.
-  save_clean_component_images: true
+  save_clean_component_images: false

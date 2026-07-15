@@ -19,17 +19,18 @@ PYTHONPATH=. python3 scripts/render.py --config configs/default.yaml
 ### Available config files
 
 ```text
-configs/default.yaml      # main documented example
-configs/mesh_001.yaml     # single mesh example, scale_to_nm = 1.0
-configs/sample_001.yaml   # labelled components, scale_to_nm = 1000000.0
-configs/sample_002.yaml   # labelled components, scale_to_nm = 1000.0
-configs/sample_003.yaml   # labelled components, scale_to_nm = 1000.0
-configs/sample_004.yaml   # labelled components, scale_to_nm = 1.0
+  # Known tested scale factors:
+  #   mesh_001   : 1.0
+  #   sample_001 : 1000000.0
+  #   sample_002 : 10000.0
+  #   sample_003 : 1000.0
+  #   sample_004 : 1.0
 ```
 
 ### Run a specific sample
 
 ```bash
+PYTHONPATH=. python scripts/render.py --config configs/mesh_001.yaml
 PYTHONPATH=. python scripts/render.py --config configs/sample_001.yaml
 PYTHONPATH=. python scripts/render.py --config configs/sample_002.yaml
 PYTHONPATH=. python scripts/render.py --config configs/sample_003.yaml

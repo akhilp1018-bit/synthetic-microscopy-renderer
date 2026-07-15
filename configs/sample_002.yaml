@@ -59,11 +59,13 @@ input:
   #   1000000.0  if mesh coordinates are in mm
 
 
-  # Known labelled-component samples:
-  #   sample_001: 1000000.0  # tested, mm-like coordinates
-  #   sample_002: 10000.0    # tested practical scale; 1000 too small, 100000 too slow
-  #   sample_003: 1000.0     # µm-like coordinates
-  #   sample_004: 1.0        # already nm
+  # Known tested scale factors:
+  #   mesh_001   : 1.0
+  #   sample_001 : 1000000.0
+  #   sample_002 : 10000.0
+  #   sample_003 : 1000.0
+  #   sample_004 : 1.0
+  
   scale_to_nm: 10000.0     
 
  
