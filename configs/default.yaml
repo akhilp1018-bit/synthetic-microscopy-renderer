@@ -41,7 +41,7 @@ input:
   #     Render separate dendrite and spine mesh files in the same grid.
   #     Output masks: dendrite mask and spine mask.
   #
-  mode: labelled_components
+  mode: single_mesh
 
   # Used when mode: single_mesh.
   mesh_path: data/mesh_001/mesh_001.ply
@@ -61,12 +61,12 @@ input:
 
 
   # Known labelled-component samples:
-  #   mesh_001: 1.0
+  #   mesh_001  :   1.0
   #   sample_001: 1000000.0  # coordinates appear to be in mm
   #   sample_002: 1000.0     # coordinates appear to be in µm
   #   sample_003: 1000.0     # coordinates appear to be in µm
   #   sample_004: 1.0        # coordinates appear to be in nm
-  scale_to_nm: 1000    #default is 1.0
+  scale_to_nm: 1.0
  
 
   # If true, subtract the mean vertex position before rendering.
@@ -93,8 +93,8 @@ output:
   #   zstack_sample_001_spine_mask.tif
   #   metadata_sample_001.json
   #
-  output_dir: outputs/sample_002/gaussian_2p_voxelgrid_membrane
-  output_name: sample_002
+  output_dir: outputs/mesh_001/gaussian_2p_voxelgrid_membrane
+  output_name: mesh_001
 
 
 grid:

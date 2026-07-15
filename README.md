@@ -26,7 +26,7 @@ Large mesh files are not stored directly in GitHub.
 
 Download the mesh data from FAUbox:
 
-https://faubox.rrze.uni-erlangen.de/getlink/fiPoqGFeM4ym6iUhvyyHpu/data
+"the link i will add later"
 
 After downloading, place the `data` folder in the repository root so that the structure is:
 
