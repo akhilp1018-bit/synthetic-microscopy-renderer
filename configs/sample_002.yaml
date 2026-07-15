@@ -66,7 +66,7 @@ input:
   #   sample_002: 1000000.0     # coordinates appear to be in µm
   #   sample_003: 1000.0     # coordinates appear to be in µm
   #   sample_004: 1.0        # coordinates appear to be in nm
-  scale_to_nm: 1000000.0
+  scale_to_nm: 10000.0
  
 
   # If true, subtract the mean vertex position before rendering.
