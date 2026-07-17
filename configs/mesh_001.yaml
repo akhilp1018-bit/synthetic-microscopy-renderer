@@ -112,7 +112,7 @@ grid:
   #   0.2   -> 200 nm/px, use xy200 PSF
   #   0.094 -> 94 nm/px, use xy94 PSF
   #
-  xy_um_per_px: 0.094
+  xy_um_per_px: 0.2
 
   # Z spacing in micrometres.
   z_step_um: 0.5
@@ -129,8 +129,8 @@ grid:
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
-  roi_size_um_x: 150.0
-  roi_size_um_y: 150.0
+  roi_size_um_x: 100.0
+  roi_size_um_y: 100.0
 
   # Relative XY margin around the mesh bounding box.
   # Example: 0.05 adds 5% margin.
