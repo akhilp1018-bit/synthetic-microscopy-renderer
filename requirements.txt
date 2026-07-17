@@ -1,0 +1,6 @@
+numpy
+torch
+trimesh
+tifffile
+yaml
+matplotlib
