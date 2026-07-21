@@ -126,8 +126,8 @@ grid:
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
-  roi_size_um_x: 100.0
-  roi_size_um_y: 100.0
+  roi_size_um_x: 150.0
+  roi_size_um_y: 150.0
 
   # Relative XY margin around the mesh bounding box.
   # Example: 0.05 adds 5% margin.

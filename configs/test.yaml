@@ -13,11 +13,11 @@
 #
 # Reproducible command from repository root:
 #
-#   PYTHONPATH=. python scripts/render.py --config configs/default.yaml
+#   PYTHONPATH=. python scripts/render.py --config configs/sample_001.yaml
 #
 # On HPC with the current thesis environment:
 #
-#   PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/default.yaml
+#   PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/sample_001.yaml
 #
 # Coordinate convention:
 #   Mesh coordinates: XYZ, interpreted in nanometres after scale_to_nm.
@@ -41,13 +41,13 @@ input:
   #     Render separate dendrite and spine mesh files in the same grid.
   #     Output masks: dendrite mask and spine mask.
   #
-  mode: single_mesh
+  mode: labelled_components
 
   # Used when mode: single_mesh.
   mesh_path: data/mesh_001/mesh_001.ply
 
   # Used when mode: labelled_components.
-  labelled_dir: data/sample_002
+  labelled_dir: data/sample_001
   dendrite_pattern: dendrite*.ply
   spine_pattern: spine*.ply
 
@@ -59,14 +59,14 @@ input:
   #   1000000.0  if mesh coordinates are in mm
 
 
+
   # Known tested scale factors:
   #   mesh_001   : 1.0
   #   sample_001 : 1000000.0
   #   sample_002 : 10000.0
   #   sample_003 : 1000.0
   #   sample_004 : 1.0
-  #
-  scale_to_nm: 1.0
+  scale_to_nm: 1000000.0
  
 
   # If true, subtract the mean vertex position before rendering.
@@ -93,8 +93,8 @@ output:
   #   zstack_sample_001_spine_mask.tif
   #   metadata_sample_001.json
   #
-  output_dir: outputs/mesh_001/gaussian_2p_splatting_membrane_auto
-  output_name: mesh_001
+  output_dir: outputs/sample_001/gaussian_2p_voxelgrid_membrane_fixed
+  output_name: sample_001
 
 
 grid:
@@ -109,7 +109,7 @@ grid:
   #   0.2   -> 200 nm/px, use xy200 PSF
   #   0.094 -> 94 nm/px, use xy94 PSF
   #
-  xy_um_per_px: 0.2
+  xy_um_per_px: 0.094
 
   # Z spacing in micrometres.
   z_step_um: 0.5
@@ -122,12 +122,12 @@ grid:
   #   false = render full mesh bounding box
   #   true  = render centered XY crop around the mesh/labelled components
   #
-  use_roi: true
+  use_roi: false
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
-  roi_size_um_x: 100.0
-  roi_size_um_y: 100.0
+  roi_size_um_x: 150.0
+  roi_size_um_y: 150.0
 
   # Relative XY margin around the mesh bounding box.
   # Example: 0.05 adds 5% margin.
@@ -170,7 +170,7 @@ renderer:
   #     Mesh surface is sampled as continuous points and accumulated using
   #     Gaussian kernels. PSF convolution can optionally be applied afterwards.
   #
-  method: gaussian_splatting
+  method: voxel_grid
 
   # ------------------------------------------------------------
   # Label/density mode
