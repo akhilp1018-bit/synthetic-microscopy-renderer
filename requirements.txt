@@ -1,6 +1,6 @@
-numpy
-torch
-trimesh
-tifffile
-PyYAML
-matplotlib
+numpy>=2.0
+torch>=2.0
+trimesh>=4.0
+tifffile>=2024.0
+PyYAML>=6.0
+matplotlib>=3.8
