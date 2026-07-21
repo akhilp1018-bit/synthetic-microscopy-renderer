@@ -1,0 +1,349 @@
+# ============================================================
+# Synthetic Microscopy Renderer Configuration
+# ============================================================
+#
+# This config controls the complete rendering pipeline:
+#
+#   mesh data + config
+#   -> density volume
+#   -> PSF convolution
+#   -> synthetic image stack
+#   -> masks
+#   -> metadata
+#
+# Reproducible command from repository root:
+#
+#   PYTHONPATH=. python scripts/render.py --config configs/default.yaml
+#
+# On HPC with the current thesis environment:
+#
+#   PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/default.yaml
+#
+# Coordinate convention:
+#   Mesh coordinates: XYZ, interpreted in nanometres after scale_to_nm.
+#   Output image/mask stacks: ZYX, saved as TIFF.
+#
+# ============================================================
+
+
+input:
+  # ------------------------------------------------------------
+  # Input mode
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #
+  #   single_mesh
+  #     Render one complete mesh.
+  #     Output mask: object mask.
+  #
+  #   labelled_components
+  #     Render separate dendrite and spine mesh files in the same grid.
+  #     Output masks: dendrite mask and spine mask.
+  #
+  mode: single_mesh
+
+  # Used when mode: single_mesh.
+  mesh_path: data/mesh_001/mesh_001.ply
+
+  # Used when mode: labelled_components.
+  labelled_dir: data/sample_002
+  dendrite_pattern: dendrite*.ply
+  spine_pattern: spine*.ply
+
+  # Mesh coordinate conversion to nanometres.
+  #
+  # Use:
+  #   1.0        if mesh coordinates are already in nm
+  #   1000.0     if mesh coordinates are in µm
+  #   1000000.0  if mesh coordinates are in mm
+
+
+  # Known tested scale factors:
+  #   mesh_001   : 1.0
+  #   sample_001 : 1000000.0
+  #   sample_002 : 10000.0
+  #   sample_003 : 1000.0
+  #   sample_004 : 1.0
+  #
+  scale_to_nm: 1.0
+ 
+
+  # If true, subtract the mean vertex position before rendering.
+  # Usually keep false when meshes are already in a meaningful coordinate system.
+  recenter: false
+
+
+output:
+  # ------------------------------------------------------------
+  # Output location and filename tag
+  # ------------------------------------------------------------
+  #
+  # Output files are written into output_dir.
+  # output_name is used in the TIFF/metadata filenames.
+  #
+  # Example single_mesh outputs:
+  #   zstack_mesh_001_image.tif
+  #   zstack_mesh_001_object_mask.tif
+  #   metadata_mesh_001.json
+  #
+  # Example labelled_components outputs:
+  #   zstack_sample_001_image.tif
+  #   zstack_sample_001_dendrite_mask.tif
+  #   zstack_sample_001_spine_mask.tif
+  #   metadata_sample_001.json
+  #
+  output_dir: outputs/mesh_001/gaussian_2p_splatting_membrane_auto
+  output_name: mesh_001
+
+
+grid:
+  # ------------------------------------------------------------
+  # Output image sampling
+  # ------------------------------------------------------------
+  #
+  # XY pixel size in micrometres per pixel.
+  # Use a PSF that matches this value.
+  #
+  # Examples:
+  #   0.2   -> 200 nm/px, use xy200 PSF
+  #   0.094 -> 94 nm/px, use xy94 PSF
+  #
+  xy_um_per_px: 0.2
+
+  # Z spacing in micrometres.
+  z_step_um: 0.5
+
+  # ------------------------------------------------------------
+  # Region of interest
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #   false = render full mesh bounding box
+  #   true  = render centered XY crop around the mesh/labelled components
+  #
+  use_roi: true
+
+  # ROI size in micrometres.
+  # Used only when use_roi: true.
+  roi_size_um_x: 100.0
+  roi_size_um_y: 100.0
+
+  # Relative XY margin around the mesh bounding box.
+  # Example: 0.05 adds 5% margin.
+  margin: 0.05
+
+  # ------------------------------------------------------------
+  # Output shape mode
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #
+  #   auto
+  #     Compute output shape from bbox/ROI and voxel size.
+  #     This is the safest default.
+  #
+  #   fixed
+  #     Use output_shape_zyx exactly.
+  #     Useful for fixed-size dataset patches.
+  #     The selected ROI center must contain geometry, otherwise output can be empty.
+  #
+  shape_mode: fixed
+
+  # Used only when shape_mode: fixed.
+  # Order: [Z, Y, X]
+  output_shape_zyx: [64, 128, 128]
+
+
+renderer:
+  # ------------------------------------------------------------
+  # Renderer type
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #
+  #   voxel_grid
+  #     Mesh surface is sampled into a voxel density grid.
+  #     This is the stable default renderer.
+  #
+  #   gaussian_splatting
+  #     Mesh surface is sampled as continuous points and accumulated using
+  #     Gaussian kernels. PSF convolution can optionally be applied afterwards.
+  #
+  method: gaussian_splatting
+
+  # ------------------------------------------------------------
+  # Label/density mode
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #
+  #   membrane
+  #     Render surface-like membrane density from mesh faces.
+  #
+  #   pseudofilled
+  #     Start from membrane density and apply stronger smoothing to make the
+  #     object thicker and more volume-like.
+  #
+  # Note:
+  #   gaussian_splatting currently supports membrane mode only.
+  #
+  labeling_mode: membrane
+
+  # Approximate surface sampling spacing in nanometres.
+  # Smaller values give denser sampling but are slower.
+  spacing_nm: 200
+
+  # Number of mesh faces processed per batch in voxel_grid mode.
+  # Lower this if GPU memory is limited.
+  batch_faces: 2048
+
+  # Used only when labeling_mode: pseudofilled.
+  # Gaussian sigma in voxel units: [Z, Y, X]
+  pseudofill_sigma_zyx: [2.0, 2.5, 2.5]
+
+  # Final small density smoothing before PSF convolution in voxel_grid mode.
+  # Gaussian sigma in voxel units: [Z, Y, X]
+  density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
+
+  # If true, preserve total density after smoothing.
+  density_normalize_sum: true
+
+
+splatting:
+  # ------------------------------------------------------------
+  # Gaussian splatting settings
+  # ------------------------------------------------------------
+  #
+  # This section is used only when:
+  #
+  #   renderer.method: gaussian_splatting
+  #
+  # Gaussian splatting pipeline:
+  #   mesh surface
+  #   -> sampled surface points
+  #   -> Gaussian kernel accumulation
+  #   -> optional PSF convolution
+  #
+
+  # Surface point sampling spacing in nanometres.
+  # Smaller values sample more points and increase runtime/memory.
+  spacing_nm: 200
+
+  # Gaussian splat width in voxel units: [Z, Y, X]
+  sigma_zyx: [0.5, 0.8, 0.8]
+
+  # If true, apply calibrated PSF after Gaussian splatting.
+  # If false, output is only the splatted density volume.
+  apply_psf: true
+
+  # Random seed for surface point sampling.
+  # Keeps splatting reproducible.
+  seed: 0
+
+  # Number of sampled points processed per batch.
+  # Lower this if GPU memory is limited.
+  points_per_batch: 50000
+
+
+psf:
+  # ------------------------------------------------------------
+  # Point spread function
+  # ------------------------------------------------------------
+  #
+  # Options:
+  #
+  #   bornwolf_1p
+  #     Load measured/calculated Born-Wolf PSF and use it directly.
+  #
+  #   bornwolf_2p
+  #     Load Born-Wolf PSF, square it, and normalize it to create a simple
+  #     two-photon-like PSF.
+  #
+  #   gaussian_2p
+  #     Generate an analytical Gaussian PSF and square it for a simple
+  #     two-photon-like PSF.
+  #
+  mode: gaussian_2p
+
+  # PSF file path.
+  # Must match the output XY sampling.
+  #
+  # For xy_um_per_px: 0.2, use:
+  #   psfs/psf_bornwolf_488nm_NA1_xy200nm_z500nm_65x65x13.tif
+  #
+  # For xy_um_per_px: 0.094, use:
+  #   psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
+  #
+  path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
+
+  # If true, square the loaded PSF before normalization.
+  # Usually true for bornwolf_2p.
+  two_photon_like: true
+
+  # Parameters below are used only when mode: gaussian_2p.
+  shape_zyx: [13, 65, 65]
+  lambda_nm: 488.0
+  na: 1.0
+  refractive_index: 1.33
+  sigma_scale_xy: 1.0
+  sigma_scale_z: 1.0
+
+
+noise:
+  # ------------------------------------------------------------
+  # Noise model
+  # ------------------------------------------------------------
+  #
+  # If enabled:
+  #   clean volume
+  #   -> normalized to [0, 1]
+  #   -> scaled to peak_photons
+  #   -> Poisson photon noise
+  #   -> Gaussian read noise
+  #
+  # For clean ground-truth renderings, keep enabled: false.
+  #
+  enabled: false
+
+  # Maximum photon count after normalization.
+  # Higher values give cleaner images.
+  peak_photons: 500.0
+
+  # Standard deviation of additive Gaussian read noise.
+  read_noise_std: 5.0
+
+  # Random seed for reproducible noise.
+  # Use null for non-deterministic noise.
+  seed: 0
+
+  # Number of Z slices processed at once when adding Gaussian noise.
+  gaussian_chunk_slices: 16
+
+
+masks:
+  # ------------------------------------------------------------
+  # Mask generation thresholds
+  # ------------------------------------------------------------
+  #
+  # Masks are created by thresholding rendered volumes relative to their
+  # maximum value.
+  #
+  # Example:
+  #   0.1 means threshold = 10% of max intensity.
+  #
+
+  # Used in single_mesh mode.
+  object_rel_threshold: 0.1
+
+  # Used in labelled_components mode.
+  spine_rel_threshold: 0.1
+  dendrite_rel_threshold: 0.1
+
+  # Save one mask per individual spine.
+  # Used only in labelled_components mode.
+  save_individual_spine_masks: false
+
+  # Save clean rendered dendrite/spine component images before combining.
+  # Used only in labelled_components mode.
+  save_clean_component_images: false
