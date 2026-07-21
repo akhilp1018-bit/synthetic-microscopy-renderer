@@ -129,6 +129,24 @@ def prepare_mesh_for_sim(
     return tmp_path
 
 
+
+def get_mesh_anchor_nm(mesh_path: str | Path) -> tuple[float, float, float]:
+    """
+    Return an actual mesh vertex near the mean vertex position.
+
+    The mean position itself may lie in empty space for a curved or branched
+    dendrite. Selecting the nearest real vertex guarantees that a fixed-size
+    patch is centred on geometry.
+    """
+    mesh = load_mesh(mesh_path)
+    vertices = mesh.vertices.astype(np.float64)
+
+    mean_xyz = vertices.mean(axis=0)
+    distances_sq = np.sum((vertices - mean_xyz) ** 2, axis=1)
+    anchor = vertices[int(np.argmin(distances_sq))]
+
+    return tuple(float(v) for v in anchor)
+
 def load_bbox_nm(mesh_path: str | Path) -> tuple[float, float, float, float, float, float]:
     """
     Return the mesh bounding box in nanometres.

@@ -34,6 +34,7 @@ from src.mesh_io import (
     get_combined_bbox_nm,
     find_labelled_component_paths,
     prepare_labelled_components_for_sim,
+    get_mesh_anchor_nm,
 )
 from src.roi import compute_full_bbox, compute_roi_bbox, compute_voxel_grid
 from src.psf import load_psf_zyx, make_gaussian_psf_matched_zyx
@@ -350,11 +351,22 @@ def main():
 
     output_shape_zyx = get_output_shape_from_config(grid_cfg)
 
+    # A fixed patch must be centred on actual geometry. The centre of the
+    # complete bounding box can lie in empty space, especially for curved or
+    # branched dendrites, which produces an all-black fixed-size render.
+    fixed_center_xyz_nm = None
+    if output_shape_zyx is not None:
+        if input_mode == "labelled_components":
+            fixed_center_xyz_nm = get_mesh_anchor_nm(sim_dendrite_path)
+        else:
+            fixed_center_xyz_nm = get_mesh_anchor_nm(sim_mesh_path)
+
     grid = compute_voxel_grid(
         render_bbox,
         xy_um_per_px=float(grid_cfg["xy_um_per_px"]),
         z_step_um=float(grid_cfg["z_step_um"]),
         output_shape_zyx=output_shape_zyx,
+        fixed_center_xyz_nm=fixed_center_xyz_nm,
     )
 
     # ------------------------------------------------------------

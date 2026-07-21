@@ -100,6 +100,7 @@ def compute_voxel_grid(
     xy_um_per_px: float,
     z_step_um: float,
     output_shape_zyx=None,
+    fixed_center_xyz_nm=None,
 ) -> dict:
     """
     Convert a physical render bounding box into a voxel grid.
@@ -122,6 +123,10 @@ def compute_voxel_grid(
             Z slice spacing in micrometres.
         output_shape_zyx:
             Optional fixed output shape in [Z, Y, X] order.
+        fixed_center_xyz_nm:
+            Optional XYZ centre in nm for fixed mode. When provided, the
+            fixed grid is centred on this point instead of the bounding-box
+            centre.
 
     Returns:
         Dictionary containing:
@@ -157,11 +162,20 @@ def compute_voxel_grid(
         Z, H, W = shape_zyx
         shape_mode = "fixed"
 
-        # In fixed-shape mode, keep the requested shape and center it on
-        # the selected render bounding box.
-        cx_nm = 0.5 * (xmin + xmax)
-        cy_nm = 0.5 * (ymin + ymax)
-        cz_nm = 0.5 * (zmin + zmax)
+        # In fixed-shape mode, use an explicit mesh anchor when available.
+        # A bounding-box centre may lie in empty space for a curved dendrite.
+        if fixed_center_xyz_nm is None:
+            cx_nm = 0.5 * (xmin + xmax)
+            cy_nm = 0.5 * (ymin + ymax)
+            cz_nm = 0.5 * (zmin + zmax)
+        else:
+            if len(fixed_center_xyz_nm) != 3:
+                raise ValueError("fixed_center_xyz_nm must contain XYZ values")
+            cx_nm, cy_nm, cz_nm = (float(v) for v in fixed_center_xyz_nm)
+            print(
+                "Fixed patch centre XYZ nm: "
+                f"({cx_nm:.1f}, {cy_nm:.1f}, {cz_nm:.1f})"
+            )
 
         xmin = cx_nm - 0.5 * (W - 1) * voxel_x_nm
         ymin = cy_nm - 0.5 * (H - 1) * voxel_y_nm

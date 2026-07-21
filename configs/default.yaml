@@ -93,7 +93,7 @@ output:
   #   zstack_sample_001_spine_mask.tif
   #   metadata_sample_001.json
   #
-  output_dir: outputs/mesh_001/gaussian_2p_voxelgrid_membrane
+  output_dir: outputs/mesh_001/gaussian_2p_voxelgrid_membrane_fixed
   output_name: mesh_001
 
 
@@ -148,7 +148,7 @@ grid:
   #     Useful for fixed-size dataset patches.
   #     The selected ROI center must contain geometry, otherwise output can be empty.
   #
-  shape_mode: auto
+  shape_mode: fixed
 
   # Used only when shape_mode: fixed.
   # Order: [Z, Y, X]
