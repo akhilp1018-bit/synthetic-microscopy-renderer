@@ -202,7 +202,7 @@ renderer:
 
   # Final small density smoothing before PSF convolution in voxel_grid mode.
   # Gaussian sigma in voxel units: [Z, Y, X]
-  density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
+  density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
 
   # If true, preserve total density after smoothing.
   density_normalize_sum: true

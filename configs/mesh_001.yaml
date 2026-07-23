@@ -204,7 +204,7 @@ renderer:
 
   # Final small density smoothing before PSF convolution in voxel_grid mode.
   # Gaussian sigma in voxel units: [Z, Y, X]
-  density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
+  density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
 
   # If true, preserve total density after smoothing.
   density_normalize_sum: true
@@ -275,7 +275,7 @@ psf:
   # For xy_um_per_px: 0.094, use:
   #   psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
   #
-  path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
+  path: psfs/psf_bornwolf_488nm_NA1_xy200nm_z500nm_65x65x13.tif
 
   # If true, square the loaded PSF before normalization.
   # Usually true for bornwolf_2p.
