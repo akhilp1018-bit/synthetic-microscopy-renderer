@@ -37,7 +37,7 @@ Mask colors in the overlay:
 
 Run from the repository root:
 
-    PYTHONPATH=. python scripts/make_overlay.py \
+    python scripts/make_overlay.py \
         --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
 
 Generated files:
@@ -169,6 +169,7 @@ def save_overlay_stack(
         path,
         rgb_uint8,
         photometric="rgb",
+        compression="zlib"
         metadata={"axes": "ZYXS"},
     )
 
