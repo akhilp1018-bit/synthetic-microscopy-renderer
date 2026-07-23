@@ -5,8 +5,8 @@ input:
   recenter: false
 
 output:
-  output_dir: outputs/render_comaparison/voxel_grid
-  output_name: mesh001_voxel_grid
+  output_dir: outputs/render_comaparison/gaussian_splatting
+  output_name: mesh001_gaussian_splatting
 
 grid:
   xy_um_per_px: 0.094
@@ -19,7 +19,7 @@ grid:
   output_shape_zyx: [64, 512, 512]
 
 renderer:
-  method: voxel_grid
+  method: gaussian_splatting
   labeling_mode: membrane
   spacing_nm: 200
   batch_faces: 2048
