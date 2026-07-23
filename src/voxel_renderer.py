@@ -427,7 +427,10 @@ def build_density_for_mesh(
     print(f"Labeling mode: {labeling_mode}")
     print(f"{'=' * 50}")
 
-    t0 = time.time()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
 
     if labeling_mode == "membrane":
         rho = mesh_to_density_zyx(
@@ -461,11 +464,14 @@ def build_density_for_mesh(
         torch.cuda.synchronize()
 
     print(
-        f"[{tag}] density time: {time.time() - t0:.1f}s "
+        f"[{tag}] density time: {time.perf_counter() - t0:.1f}s "
         f"sum={float(rho.sum()):.2f} max={float(rho.max()):.4f}"
     )
 
-    t0 = time.time()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
 
     rho = smooth_density_zyx(
         rho,
@@ -478,7 +484,7 @@ def build_density_for_mesh(
         torch.cuda.synchronize()
 
     print(
-        f"[{tag}] smooth time : {time.time() - t0:.1f}s "
+        f"[{tag}] smooth time : {time.perf_counter() - t0:.1f}s "
         f"sum={float(rho.sum()):.2f} max={float(rho.max()):.4f}"
     )
 
@@ -489,7 +495,10 @@ def render_density(rho, psf_eff, tag, device):
     """
     Render a density volume by applying PSF convolution.
     """
-    t0 = time.time()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    t0 = time.perf_counter()
 
     vol = focal_stack_from_density(rho, psf_eff, device=device)
 
@@ -497,7 +506,7 @@ def render_density(rho, psf_eff, tag, device):
         torch.cuda.synchronize()
 
     print(
-        f"[{tag}] render time: {time.time() - t0:.1f}s "
+        f"[{tag}] render time: {time.perf_counter() - t0:.1f}s "
         f"min={float(vol.min()):.4f} max={float(vol.max()):.4f}"
     )
 
@@ -521,6 +530,11 @@ def render_single_mesh_voxel(
     """
     renderer_cfg = config["renderer"]
 
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    total_start = time.perf_counter()
+
     rho = build_density_for_mesh(
         mesh_path=mesh_path,
         tag="single_mesh",
@@ -537,6 +551,14 @@ def render_single_mesh_voxel(
     )
 
     vol = render_density(rho, psf_eff, tag="single_mesh", device=device)
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    print(
+        f"[single_mesh] total renderer time: "
+        f"{time.perf_counter() - total_start:.1f}s"
+    )
 
     del rho
 

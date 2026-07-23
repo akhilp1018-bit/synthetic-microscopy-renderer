@@ -16,6 +16,7 @@ Note:
 """
 
 import math
+import time
 
 import numpy as np
 import torch
@@ -252,13 +253,31 @@ def render_single_mesh_splatting(
     print(f"apply_psf={apply_psf}")
     print(f"{'=' * 50}")
 
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    total_start = time.perf_counter()
+
+    mesh_load_start = time.perf_counter()
     mesh = _load_mesh(mesh_path)
+    mesh_load_time = time.perf_counter() - mesh_load_start
+    print(f"[{tag}] mesh load time : {mesh_load_time:.1f}s")
+
+    sampling_start = time.perf_counter()
 
     points_xyz_nm = _sample_surface_points(
         mesh,
         spacing_nm=spacing_nm,
         seed=seed,
     )
+
+    sampling_time = time.perf_counter() - sampling_start
+    print(f"[{tag}] sampling time  : {sampling_time:.1f}s")
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    splatting_start = time.perf_counter()
 
     vol = _splat_points_to_volume(
         points_xyz_nm=points_xyz_nm,
@@ -269,10 +288,35 @@ def render_single_mesh_splatting(
     )
 
     if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    splatting_time = time.perf_counter() - splatting_start
+    print(f"[{tag}] splatting time : {splatting_time:.1f}s")
+
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
     if apply_psf:
         print("Applying PSF convolution...")
+
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+
+        psf_start = time.perf_counter()
         vol = focal_stack_from_density(vol, psf_eff, device=device)
+
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+
+        psf_time = time.perf_counter() - psf_start
+        print(f"[{tag}] PSF time       : {psf_time:.1f}s")
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+    print(
+        f"[{tag}] total renderer time: "
+        f"{time.perf_counter() - total_start:.1f}s"
+    )
 
     return vol
