@@ -169,7 +169,7 @@ def save_overlay_stack(
         path,
         rgb_uint8,
         photometric="rgb",
-        compression="zlib"
+        compression="zlib",
         metadata={"axes": "ZYXS"},
     )
 
