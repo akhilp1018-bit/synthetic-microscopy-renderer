@@ -58,14 +58,20 @@ psfs/
 
 ## Installation
 
-### Standard installation
+PyTorch is not pinned in `requirements.txt` because the correct installation depends on the operating system, Python version, GPU, and CUDA setup.
 
-These instructions are intended for a normal Linux or macOS computer.
+Use the official PyTorch installation selector to obtain the correct command for your computer:
+
+[PyTorch installation selector](https://pytorch.org/get-started/locally/)
+
+Install PyTorch first, then install the remaining project dependencies.
+
+### Standard Linux or macOS installation
 
 Clone the repository and enter its root directory:
 
 ```bash
-git clone <https://github.com/akhilp1018-bit/synthetic-microscopy-renderer>
+git clone https://github.com/akhilp1018-bit/synthetic-microscopy-renderer.git
 cd synthetic-microscopy-renderer
 ```
 
@@ -82,11 +88,15 @@ Upgrade pip:
 python -m pip install --upgrade pip
 ```
 
-Install PyTorch:
+Install the appropriate PyTorch build using the command provided by the official PyTorch installation selector.
+
+For example, a CPU-only installation may use:
 
 ```bash
-python -m pip install torch
+python -m pip install torch torchvision
 ```
+
+For a CUDA-enabled installation, select the correct operating system, package manager, Python version, and CUDA version on the PyTorch website, then run the generated command.
 
 Install the remaining project dependencies:
 
@@ -97,31 +107,56 @@ python -m pip install -r requirements.txt
 Verify the installation:
 
 ```bash
-python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 ```
 
 On a computer without a compatible NVIDIA GPU, the renderer can run on the CPU, although large rendering tasks may be slow and require substantial memory.
 
-For a CUDA-enabled installation, install a PyTorch build that is compatible with the computer's GPU and CUDA setup.
-
 ### Windows installation
+
+Clone the repository and enter its root directory:
+
+```powershell
+git clone https://github.com/akhilp1018-bit/synthetic-microscopy-renderer.git
+cd synthetic-microscopy-renderer
+```
 
 Create and activate the environment in PowerShell:
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
 
+Upgrade pip:
+
+```powershell
 python -m pip install --upgrade pip
-python -m pip install torch
+```
+
+Use the official PyTorch installation selector and choose Windows, Pip, Python, and the CUDA version supported by your system, or CPU if no compatible GPU is available.
+
+Then run the generated PyTorch installation command.
+
+Example only:
+
+```powershell
+python -m pip install torch torchvision
+```
+
+Install the remaining project dependencies:
+
+```powershell
 python -m pip install -r requirements.txt
 ```
 
 Verify the installation:
 
 ```powershell
-python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 ```
+
+If `CUDA available` is `False` on a computer with an NVIDIA GPU, check that the installed PyTorch build matches the system's supported CUDA configuration.
 
 ## Run an example
 
@@ -144,7 +179,7 @@ The rendering settings, input paths, output paths, microscope model, sampling re
 
 The FAU HPC can be used for larger rendering tasks that require a GPU or more memory.
 
-The cluster-provided PyTorch module is recommended because it is compatible with the available Tesla V100 GPUs.
+The cluster-provided PyTorch module is recommended because it is configured for the HPC environment and available GPUs.
 
 Load the module:
 
@@ -167,13 +202,15 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+Do not install another PyTorch version inside this environment unless the cluster module is intentionally being replaced.
+
 Verify GPU support on a GPU node:
 
 ```bash
 python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None'); print('Architectures:', torch.cuda.get_arch_list())"
 ```
 
-For the Tesla V100, the supported architecture list should include:
+For a Tesla V100 GPU, the supported architecture list should include:
 
 ```text
 sm_70
@@ -207,6 +244,8 @@ The HPC instructions are optional. The renderer can also be used on a normal wor
 
 The renderer writes its results to the output folder defined in the configuration file.
 
+### Unlabelled single-mesh mode
+
 Typical outputs for `single_mesh` mode are:
 
 ```text
@@ -214,6 +253,15 @@ zstack_*_image.tif
 zstack_*_object_mask.tif
 metadata_*.json
 ```
+
+The `object_mask` is a binary foreground/background mask generated from the complete unlabelled mesh:
+
+- foreground: voxels occupied by the mesh
+- background: empty voxels
+
+It does not distinguish dendrites from spines.
+
+### Labelled-components mode
 
 Typical outputs for `labelled_components` mode are:
 
@@ -224,7 +272,9 @@ zstack_*_spine_mask.tif
 metadata_*.json
 ```
 
-Depending on the configuration, the renderer may also create preview images or additional intermediate outputs.
+In this mode, the renderer generates separate ground-truth masks for dendrites and spines in the same coordinate system as the rendered image.
+
+Depending on the configuration, the renderer may also create preview images, overlays, or additional intermediate outputs.
 
 ## Configuration
 

@@ -15,9 +15,6 @@
 #
 #   PYTHONPATH=. python scripts/render.py --config configs/sample_001.yaml
 #
-# On HPC with the current thesis environment:
-#
-#   PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/sample_001.yaml
 #
 # Coordinate convention:
 #   Mesh coordinates: XYZ, interpreted in nanometres after scale_to_nm.
