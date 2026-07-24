@@ -531,6 +531,8 @@ def render_single_mesh_voxel(
     renderer_cfg = config["renderer"]
 
     if device.type == "cuda":
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
 
     total_start = time.perf_counter()
@@ -559,6 +561,25 @@ def render_single_mesh_voxel(
         f"[single_mesh] total renderer time: "
         f"{time.perf_counter() - total_start:.1f}s"
     )
+
+    if device.type == "cuda":
+        torch.cuda.synchronize()
+
+        peak_allocated_mb = (
+            torch.cuda.max_memory_allocated(device=device) / (1024 ** 2)
+        )
+        peak_reserved_mb = (
+            torch.cuda.max_memory_reserved(device=device) / (1024 ** 2)
+        )
+
+        print(
+            f"[single_mesh] peak allocated GPU memory: "
+            f"{peak_allocated_mb:.1f} MB"
+        )
+        print(
+            f"[single_mesh] peak reserved GPU memory : "
+            f"{peak_reserved_mb:.1f} MB"
+        )
 
     del rho
 
