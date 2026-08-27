@@ -1,0 +1,90 @@
+# ============================================================
+# Week 5 - Photon Count and Noise Test
+# ============================================================
+#
+# Purpose:
+#   Test the effect of photon count and microscopy noise on the
+#   same synthetic two-photon rendering.
+#
+# Keep mesh, renderer, sampling, and PSF settings unchanged
+# between tests. Only change:
+#   - noise.mode
+#   - noise.peak_photons
+#   - noise.read_noise_std
+#   - noise.seed
+#   - output directory/name
+#
+# Noise conditions:
+#   Clean              : enabled = false
+#   Poisson only       : mode = poisson
+#   Poisson + Gaussian : mode = poisson_gaussian
+#
+# Photon levels:
+#   Low    = 100
+#   Medium = 500
+#   High   = 2000
+
+input:
+  mode: labelled_components
+  mesh_path: data/mesh_001/mesh_001.ply
+  labelled_dir: data/sample_001
+  dendrite_pattern: dendrite*.ply
+  spine_pattern: spine*.ply
+  scale_to_nm: 1000000.0
+  recenter: false
+
+output:
+  output_dir: outputs/noise_tests/low_100_poisson
+  output_name: sample_001_low_100_poisson
+
+grid:
+  xy_um_per_px: 0.094
+  z_step_um: 0.5
+  use_roi: false
+  roi_size_um_x: 150.0
+  roi_size_um_y: 150.0
+  margin: 0.05
+  shape_mode: auto
+  output_shape_zyx: [64, 128, 128]
+
+renderer:
+  method: voxel_grid
+  labeling_mode: membrane
+  spacing_nm: 200
+  batch_faces: 2048
+  pseudofill_sigma_zyx: [2.0, 2.5, 2.5]
+  density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
+  density_normalize_sum: true
+
+splatting:
+  spacing_nm: 200
+  sigma_zyx: [0.5, 0.8, 0.8]
+  apply_psf: true
+  seed: 0
+  points_per_batch: 50000
+
+psf:
+  mode: gaussian_2p
+  path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
+  two_photon_like: true
+  shape_zyx: [13, 65, 65]
+  lambda_nm: 488.0
+  na: 1.0
+  refractive_index: 1.33
+  sigma_scale_xy: 1.0
+  sigma_scale_z: 1.0
+
+noise:
+  enabled: true
+  mode: poisson
+  peak_photons: 100.0
+  read_noise_std: 0.0
+  seed: 0
+  gaussian_chunk_slices: 16
+
+masks:
+  object_rel_threshold: 0.1
+  spine_rel_threshold: 0.1
+  dendrite_rel_threshold: 0.1
+  save_individual_spine_masks: false
+  save_clean_component_images: false

@@ -19,6 +19,7 @@ Supported renderers:
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import torch
@@ -391,7 +392,14 @@ def main():
         )
 
         # Noise can be disabled for clean data generation or enabled for noisy simulations.
+        noise_start = time.perf_counter()
+
         vol = apply_noise_if_enabled(vol, config)
+
+        noise_time = time.perf_counter() - noise_start
+
+        if config.get("noise", {}).get("enabled", False):
+            print(f"[single_mesh] noise time: {noise_time:.3f}s")
 
         image_path = save_volume(
             vol,
@@ -469,7 +477,15 @@ def main():
 
         # Combined clean image contains dendrite + spine signal.
         vol_all = vol_dendrite + vol_spines
+
+        noise_start = time.perf_counter()
+
         vol_all = apply_noise_if_enabled(vol_all, config)
+
+        noise_time = time.perf_counter() - noise_start
+
+        if config.get("noise", {}).get("enabled", False):
+            print(f"[labelled_components] noise time: {noise_time:.3f}s")
 
         image_path = save_volume(
             vol_all,
