@@ -24,15 +24,18 @@
 #   Medium = 500
 #   High   = 2000
 
+
 input:
   mode: single_mesh
   mesh_path: data/mesh_001/mesh_001.ply
   scale_to_nm: 1.0
   recenter: false
 
+
 output:
-  output_dir: outputs/noise_tests/low_100_poisson
-  output_name: mesh_001_low_100_poisson
+  output_dir: outputs/noise_tests/clean
+  output_name: mesh_001_clean
+
 
 grid:
   xy_um_per_px: 0.094
@@ -44,6 +47,7 @@ grid:
   shape_mode: fixed
   output_shape_zyx: [64, 128, 128]
 
+
 renderer:
   method: voxel_grid
   labeling_mode: membrane
@@ -53,12 +57,14 @@ renderer:
   density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
   density_normalize_sum: true
 
+
 splatting:
   spacing_nm: 200
   sigma_zyx: [0.5, 0.8, 0.8]
   apply_psf: true
   seed: 0
   points_per_batch: 50000
+
 
 psf:
   mode: gaussian_2p
@@ -71,13 +77,15 @@ psf:
   sigma_scale_xy: 1.0
   sigma_scale_z: 1.0
 
+
 noise:
-  enabled: true
-  mode: poisson
-  peak_photons: 100.0
+  enabled: false
+  mode: none
+  peak_photons: 500.0
   read_noise_std: 0.0
   seed: 0
   gaussian_chunk_slices: 16
+
 
 masks:
   object_rel_threshold: 0.1
