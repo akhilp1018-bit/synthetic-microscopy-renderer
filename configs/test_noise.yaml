@@ -25,17 +25,14 @@
 #   High   = 2000
 
 input:
-  mode: labelled_components
+  mode: single_mesh
   mesh_path: data/mesh_001/mesh_001.ply
-  labelled_dir: data/sample_001
-  dendrite_pattern: dendrite*.ply
-  spine_pattern: spine*.ply
-  scale_to_nm: 1000000.0
+  scale_to_nm: 1.0
   recenter: false
 
 output:
   output_dir: outputs/noise_tests/low_100_poisson
-  output_name: sample_001_low_100_poisson
+  output_name: mesh_001_low_100_poisson
 
 grid:
   xy_um_per_px: 0.094
