@@ -34,7 +34,7 @@ input:
 
 output:
   output_dir: outputs/noise_tests/clean
-  output_name: mesh_001_clean
+  output_name: mesh_001_clean1
 
 
 grid:
