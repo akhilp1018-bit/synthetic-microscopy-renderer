@@ -289,3 +289,16 @@ To run a different experiment, edit an existing YAML file or create a new config
 ```bash
 PYTHONPATH=. python scripts/render.py --config configs/<configuration-name>.yaml
 ```
+
+## Graphical user interface
+
+An interactive GUI is available for loading meshes, selecting rendering
+subvolumes, exporting configurations, and launching renders.
+
+Run it from the repository root:
+
+```bash
+python gui/app.py
+```
+
+See `gui/README.md` for detailed GUI usage instructions.

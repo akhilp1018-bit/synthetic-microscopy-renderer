@@ -5,28 +5,28 @@ input:
   recenter: false
 output:
   output_dir: outputs/gui_results
-  output_name: gui_render
+  output_name: gui_render_job_001
 grid:
-  xy_um_per_px: 0.094
+  xy_um_per_px: 0.2
   z_step_um: 0.5
   use_roi: false
   margin: 0.05
   shape_mode: fixed
   output_shape_zyx:
-  - 64
-  - 128
-  - 128
+  - 8
+  - 16
+  - 16
   center_xyz_nm:
-  - 2569462.9698570105
-  - 1422027.5755254251
-  - 16004.986328125
+  - 2592625.5
+  - 1439514.5493031978
+  - 56862.18407963218
   selected_bounds_xyz_nm:
-    xmin: 2563446.9698570105
-    xmax: 2575478.9698570105
-    ymin: 1416011.5755254251
-    ymax: 1428043.5755254251
-    zmin: 4.986328125
-    zmax: 32004.986328125
+    xmin: 2591025.5
+    xmax: 2594225.5
+    ymin: 1437914.5493031978
+    ymax: 1441114.5493031978
+    zmin: 54862.18407963218
+    zmax: 58862.18407963218
 renderer:
   method: voxel_grid
   labeling_mode: membrane

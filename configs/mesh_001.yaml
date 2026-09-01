@@ -148,7 +148,7 @@ grid:
   #     Useful for fixed-size dataset patches.
   #     The selected ROI center must contain geometry, otherwise output can be empty.
   #
-  shape_mode: fixed
+  shape_mode: auto
 
   # Used only when shape_mode: fixed.
   # Order: [Z, Y, X]

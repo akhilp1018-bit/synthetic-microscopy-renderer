@@ -1,0 +1,12 @@
+"""
+Interactive 3D GUI for the Synthetic Microscopy Renderer.
+
+The application allows users to load and inspect mesh geometry, define
+the output shape and spatial sampling, position a fixed rendering
+subvolume, export renderer-compatible YAML configurations, launch
+renders, and manage a sequential render queue.
+
+Run from the repository root:
+
+    python gui/app.py
+"""
