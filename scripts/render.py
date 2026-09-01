@@ -352,15 +352,55 @@ def main():
 
     output_shape_zyx = get_output_shape_from_config(grid_cfg)
 
-    # A fixed patch must be centred on actual geometry. The centre of the
-    # complete bounding box can lie in empty space, especially for curved or
-    # branched dendrites, which produces an all-black fixed-size render.
+    # ------------------------------------------------------------
+    # Fixed-grid centre
+    # ------------------------------------------------------------
+    # If grid.center_xyz_nm is provided, use that explicitly selected
+    # XYZ position. This allows the GUI-selected subvolume to control
+    # where the fixed-size rendering grid is placed.
+    #
+    # If grid.center_xyz_nm is absent, preserve the original behaviour
+    # and automatically select an anchor point on the mesh.
+    # ------------------------------------------------------------
     fixed_center_xyz_nm = None
+
     if output_shape_zyx is not None:
-        if input_mode == "labelled_components":
-            fixed_center_xyz_nm = get_mesh_anchor_nm(sim_dendrite_path)
+        selected_center_xyz_nm = grid_cfg.get("center_xyz_nm", None)
+
+        if selected_center_xyz_nm is not None:
+            if (
+                not isinstance(selected_center_xyz_nm, (list, tuple))
+                or len(selected_center_xyz_nm) != 3
+            ):
+                raise ValueError(
+                    "grid.center_xyz_nm must contain three values "
+                    "in order [X, Y, Z]"
+                )
+
+            fixed_center_xyz_nm = tuple(
+                float(v) for v in selected_center_xyz_nm
+            )
+
+            print(
+                "Using selected fixed-grid center XYZ nm: "
+                f"{fixed_center_xyz_nm}"
+            )
+
         else:
-            fixed_center_xyz_nm = get_mesh_anchor_nm(sim_mesh_path)
+            # Original behaviour for existing configs.
+            if input_mode == "labelled_components":
+                fixed_center_xyz_nm = get_mesh_anchor_nm(
+                    sim_dendrite_path
+                )
+            else:
+                fixed_center_xyz_nm = get_mesh_anchor_nm(
+                    sim_mesh_path
+                )
+
+            print(
+                "Using automatic mesh anchor XYZ nm: "
+                f"{fixed_center_xyz_nm}"
+            )
 
     grid = compute_voxel_grid(
         render_bbox,
