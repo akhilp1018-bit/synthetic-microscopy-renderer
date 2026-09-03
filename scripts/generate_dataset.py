@@ -18,7 +18,7 @@ Both pipelines reuse the same rendering functions from src/.
 
 Pipeline
 --------
-1. Select an enabled source sample.
+1. Select an enabled source sample assigned to a dataset split.
 2. Randomly rotate dendrite + spines together.
 3. Select a random location on the dendrite.
 4. Create a fixed-size microscopy volume.
@@ -34,7 +34,8 @@ Image arrays      : ZYX [Z, Y, X]
 
 Run
 ---
-python scripts/generate_dataset.py --config configs/dataset_v1.yaml
+PYTHONPATH=. python scripts/generate_dataset.py \
+    --config configs/dataset_v1.yaml
 """
 
 import argparse
@@ -281,8 +282,17 @@ def save_tiff(
 # ---------------------------------------------------------------------
 
 def get_enabled_samples(config):
+    """
+    Find enabled source samples and record their dataset split.
+    """
 
     samples = []
+
+    valid_splits = {
+        "train",
+        "validation",
+        "test",
+    }
 
     for name, cfg in config["samples"].items():
 
@@ -291,6 +301,17 @@ def get_enabled_samples(config):
             False,
         ):
             continue
+
+        split = cfg.get(
+            "split"
+        )
+
+        if split not in valid_splits:
+            raise ValueError(
+                f"Sample '{name}' must have split set to "
+                f"train, validation or test. "
+                f"Got: {split}"
+            )
 
         labelled_dir = resolve_path(
             cfg["labelled_dir"]
@@ -312,6 +333,7 @@ def get_enabled_samples(config):
 
         samples.append({
             "name": name,
+            "split": split,
             "scale_to_nm": float(
                 cfg.get(
                     "scale_to_nm",
@@ -369,8 +391,34 @@ def main():
 
     ensure_dir(output_dir)
 
-    total_instances = int(
-        dataset_cfg["total_instances"]
+    split_counts = {
+        split: int(count)
+        for split, count
+        in dataset_cfg["splits"].items()
+    }
+
+    required_splits = {
+        "train",
+        "validation",
+        "test",
+    }
+
+    if set(split_counts) != required_splits:
+        raise ValueError(
+            "dataset.splits must contain exactly: "
+            "train, validation, test"
+        )
+
+    for split, count in split_counts.items():
+
+        if count < 0:
+            raise ValueError(
+                f"Split '{split}' cannot have "
+                f"a negative instance count."
+            )
+
+    total_instances = sum(
+        split_counts.values()
     )
 
     shape_zyx = tuple(
@@ -385,12 +433,12 @@ def main():
             "output_shape_zyx must be [Z, Y, X]"
         )
 
-    xy_nm = float(
-        grid_cfg["xy_nm_per_px"]
+    xy_um = float(
+        grid_cfg["xy_um_per_px"]
     )
 
-    xy_um = (
-        xy_nm / 1000.0
+    xy_nm = (
+        xy_um * 1000.0
     )
 
     z_um = float(
@@ -423,6 +471,29 @@ def main():
         config
     )
 
+    samples_by_split = {
+        "train": [],
+        "validation": [],
+        "test": [],
+    }
+
+    for sample in samples:
+        samples_by_split[
+            sample["split"]
+        ].append(sample)
+
+    for split, count in split_counts.items():
+
+        if (
+            count > 0
+            and not samples_by_split[split]
+        ):
+            raise RuntimeError(
+                f"Split '{split}' requests "
+                f"{count} instances but has "
+                f"no enabled source samples."
+            )
+
     # -----------------------------------------------------------------
     # Summary
     # -----------------------------------------------------------------
@@ -432,48 +503,55 @@ def main():
     print("=" * 60)
 
     print(
-        f"Dataset       : "
+        f"Dataset         : "
         f"{dataset_cfg['name']}"
     )
 
     print(
-        f"Instances     : "
+        f"Total instances : "
         f"{total_instances}"
     )
 
-    print(
-        f"Source meshes : "
-        f"{[s['name'] for s in samples]}"
-    )
+    for split in (
+        "train",
+        "validation",
+        "test",
+    ):
+        print(
+            f"{split.capitalize():15}: "
+            f"{split_counts[split]} instances "
+            f"<- "
+            f"{[s['name'] for s in samples_by_split[split]]}"
+        )
 
     print(
-        f"Shape ZYX     : "
+        f"Shape ZYX       : "
         f"{shape_zyx}"
     )
 
     print(
-        f"XY resolution : "
+        f"XY resolution   : "
         f"{xy_nm} nm/px"
     )
 
     print(
-        f"Z spacing     : "
+        f"Z spacing       : "
         f"{z_um} um"
     )
 
     print(
-        f"Bit depth     : "
+        f"Bit depth       : "
         f"{bit_depth}"
     )
 
     print(
-        f"Device        : "
+        f"Device          : "
         f"{device}"
     )
 
     if device.type == "cuda":
         print(
-            f"GPU           : "
+            f"GPU             : "
             f"{torch.cuda.get_device_name(0)}"
         )
 
@@ -483,364 +561,405 @@ def main():
     # Generate dataset
     # =================================================================
 
-    for index in range(
-        1,
-        total_instances + 1,
+    global_index = 0
+
+    for split in (
+        "train",
+        "validation",
+        "test",
     ):
 
-        instance_name = (
-            f"instance_{index:06d}"
-        )
+        split_total = split_counts[
+            split
+        ]
 
-        instance_dir = (
+        split_samples = samples_by_split[
+            split
+        ]
+
+        split_dir = (
             output_dir
-            / instance_name
+            / split
         )
 
         ensure_dir(
-            instance_dir
+            split_dir
         )
 
-        # Balanced use of all enabled source samples.
-        sample = samples[
-            (index - 1)
-            % len(samples)
-        ]
+        print()
+        print("=" * 60)
 
         print(
-            f"\n[{index}/{total_instances}] "
-            f"{instance_name} "
-            f"<- {sample['name']}"
+            f"Generating {split}: "
+            f"{split_total} instances"
         )
 
-        # -------------------------------------------------------------
-        # Temporary transformed meshes
-        # -------------------------------------------------------------
-        #
-        # These PLY files are automatically deleted after rendering.
-        #
+        print("=" * 60)
 
-        with tempfile.TemporaryDirectory(
-            prefix=f"{instance_name}_"
-        ) as tmp:
+        for index in range(
+            1,
+            split_total + 1,
+        ):
 
-            # ---------------------------------------------------------
-            # Random orientation
-            # ---------------------------------------------------------
+            global_index += 1
 
-            dendrite, spines, transform = (
-                rotate_labelled_components(
-                    dendrite_path=sample["dendrite"],
-                    spine_paths=sample["spines"],
-                    output_dir=Path(tmp),
-                    scale_to_nm=sample["scale_to_nm"],
-                    random_orientation=generation_cfg.get(
-                        "random_orientation",
-                        True,
-                    ),
-                )
+            instance_name = (
+                f"instance_{index:06d}"
             )
 
-            # ---------------------------------------------------------
-            # Random FOV location on actual dendrite geometry
-            # ---------------------------------------------------------
-
-            location_mode = generation_cfg.get(
-                "location",
-                "geometry_random",
+            instance_dir = (
+                split_dir
+                / instance_name
             )
 
-            if location_mode != "geometry_random":
-                raise ValueError(
-                    f"Unknown location mode: "
-                    f"{location_mode}"
-                )
-
-            center_xyz = (
-                select_random_geometry_center(
-                    dendrite
-                )
+            ensure_dir(
+                instance_dir
             )
+
+            # Balanced use of source samples
+            # assigned to this split.
+            sample = split_samples[
+                (index - 1)
+                % len(split_samples)
+            ]
 
             print(
-                f"Center XYZ nm : "
-                f"{center_xyz}"
+                f"\n[{global_index}/{total_instances}] "
+                f"{split}/{instance_name} "
+                f"<- {sample['name']}"
             )
 
             # ---------------------------------------------------------
-            # Fixed rendering grid
+            # Temporary transformed meshes
             # ---------------------------------------------------------
+            #
+            # These PLY files are automatically deleted after rendering.
+            #
 
-            bbox = get_combined_bbox_nm(
-                [dendrite] + spines
-            )
+            with tempfile.TemporaryDirectory(
+                prefix=f"{split}_{instance_name}_"
+            ) as tmp:
 
-            render_bbox = (
-                compute_full_bbox(
-                    bbox,
-                    margin=0.05,
+                # -----------------------------------------------------
+                # Random orientation
+                # -----------------------------------------------------
+
+                dendrite, spines, transform = (
+                    rotate_labelled_components(
+                        dendrite_path=sample["dendrite"],
+                        spine_paths=sample["spines"],
+                        output_dir=Path(tmp),
+                        scale_to_nm=sample["scale_to_nm"],
+                        random_orientation=generation_cfg.get(
+                            "random_orientation",
+                            True,
+                        ),
+                    )
                 )
-            )
 
-            grid = compute_voxel_grid(
-                render_bbox,
-                xy_um_per_px=xy_um,
-                z_step_um=z_um,
-                output_shape_zyx=shape_zyx,
-                fixed_center_xyz_nm=center_xyz,
-            )
+                # -----------------------------------------------------
+                # Random FOV location on actual dendrite geometry
+                # -----------------------------------------------------
 
-            renderer_grid_cfg = {
-                **grid_cfg,
-                "xy_um_per_px": xy_um,
-            }
-
-            # ---------------------------------------------------------
-            # Microscope PSF
-            # ---------------------------------------------------------
-
-            psf = load_psf(
-                config,
-                renderer_grid_cfg,
-                device,
-            )
-
-            # ---------------------------------------------------------
-            # Render dendrite using PyTorch
-            # ---------------------------------------------------------
-
-            print(
-                "Rendering dendrite..."
-            )
-
-            dendrite_volume = render_mesh(
-                dendrite,
-                grid,
-                psf,
-                config,
-                device,
-                "dendrite",
-            )
-
-            # ---------------------------------------------------------
-            # Render spines using PyTorch
-            # ---------------------------------------------------------
-
-            print(
-                f"Rendering "
-                f"{len(spines)} spines..."
-            )
-
-            spine_volume = (
-                torch.zeros_like(
-                    dendrite_volume
+                location_mode = generation_cfg.get(
+                    "location",
+                    "geometry_random",
                 )
-            )
 
-            for i, spine in enumerate(
-                spines,
-                start=1,
-            ):
+                if location_mode != "geometry_random":
+                    raise ValueError(
+                        f"Unknown location mode: "
+                        f"{location_mode}"
+                    )
 
-                spine_render = render_mesh(
-                    spine,
+                center_xyz = (
+                    select_random_geometry_center(
+                        dendrite
+                    )
+                )
+
+                print(
+                    f"Center XYZ nm : "
+                    f"{center_xyz}"
+                )
+
+                # -----------------------------------------------------
+                # Fixed rendering grid
+                # -----------------------------------------------------
+
+                bbox = get_combined_bbox_nm(
+                    [dendrite] + spines
+                )
+
+                render_bbox = (
+                    compute_full_bbox(
+                        bbox,
+                        margin=0.05,
+                    )
+                )
+
+                grid = compute_voxel_grid(
+                    render_bbox,
+                    xy_um_per_px=xy_um,
+                    z_step_um=z_um,
+                    output_shape_zyx=shape_zyx,
+                    fixed_center_xyz_nm=center_xyz,
+                )
+
+                renderer_grid_cfg = {
+                    **grid_cfg,
+                    "xy_um_per_px": xy_um,
+                }
+
+                # -----------------------------------------------------
+                # Microscope PSF
+                # -----------------------------------------------------
+
+                psf = load_psf(
+                    config,
+                    renderer_grid_cfg,
+                    device,
+                )
+
+                # -----------------------------------------------------
+                # Render dendrite using PyTorch
+                # -----------------------------------------------------
+
+                print(
+                    "Rendering dendrite..."
+                )
+
+                dendrite_volume = render_mesh(
+                    dendrite,
                     grid,
                     psf,
                     config,
                     device,
-                    f"spine_{i}",
+                    "dendrite",
                 )
 
-                spine_volume += (
-                    spine_render
+                # -----------------------------------------------------
+                # Render spines using PyTorch
+                # -----------------------------------------------------
+
+                print(
+                    f"Rendering "
+                    f"{len(spines)} spines..."
                 )
 
-                del spine_render
-
-            # ---------------------------------------------------------
-            # Clean microscopy image
-            # ---------------------------------------------------------
-
-            clean = (
-                dendrite_volume
-                + spine_volume
-            )
-
-            # ---------------------------------------------------------
-            # Ground-truth masks
-            # ---------------------------------------------------------
-            #
-            # GT is calculated before microscopy noise is added.
-            #
-
-            dendrite_mask = make_mask(
-                dendrite_volume,
-                mask_cfg.get(
-                    "dendrite_rel_threshold",
-                    0.1,
-                ),
-            )
-
-            spine_mask = make_mask(
-                spine_volume,
-                mask_cfg.get(
-                    "spine_rel_threshold",
-                    0.1,
-                ),
-            )
-
-            combined_mask = (
-                (dendrite_mask > 0)
-                | (spine_mask > 0)
-            ).to(torch.float32)
-
-            # ---------------------------------------------------------
-            # Add microscopy noise using PyTorch
-            # ---------------------------------------------------------
-
-            noisy = (
-                apply_noise_if_enabled(
-                    clean.clone(),
-                    config,
+                spine_volume = (
+                    torch.zeros_like(
+                        dendrite_volume
+                    )
                 )
-            )
 
-            # ---------------------------------------------------------
-            # Save outputs
-            # ---------------------------------------------------------
+                for i, spine in enumerate(
+                    spines,
+                    start=1,
+                ):
 
-            outputs = {
-                "clean": (
-                    clean,
-                    False,
-                ),
-                "noisy": (
-                    noisy,
-                    False,
-                ),
-                "dendrite_mask": (
-                    dendrite_mask,
-                    True,
-                ),
-                "spine_mask": (
-                    spine_mask,
-                    True,
-                ),
-                "combined_mask": (
-                    combined_mask,
-                    True,
-                ),
-            }
+                    spine_render = render_mesh(
+                        spine,
+                        grid,
+                        psf,
+                        config,
+                        device,
+                        f"spine_{i}",
+                    )
 
-            for (
-                name,
-                (volume, is_mask),
-            ) in outputs.items():
+                    spine_volume += (
+                        spine_render
+                    )
+
+                    del spine_render
+
+                # -----------------------------------------------------
+                # Clean microscopy image
+                # -----------------------------------------------------
+
+                clean = (
+                    dendrite_volume
+                    + spine_volume
+                )
+
+                # -----------------------------------------------------
+                # Ground-truth masks
+                # -----------------------------------------------------
+                #
+                # GT is calculated before microscopy noise is added.
+                #
+
+                dendrite_mask = make_mask(
+                    dendrite_volume,
+                    mask_cfg.get(
+                        "dendrite_rel_threshold",
+                        0.1,
+                    ),
+                )
+
+                spine_mask = make_mask(
+                    spine_volume,
+                    mask_cfg.get(
+                        "spine_rel_threshold",
+                        0.1,
+                    ),
+                )
+
+                combined_mask = (
+                    (dendrite_mask > 0)
+                    | (spine_mask > 0)
+                ).to(torch.float32)
+
+                # -----------------------------------------------------
+                # Add microscopy noise using PyTorch
+                # -----------------------------------------------------
+
+                noisy = (
+                    apply_noise_if_enabled(
+                        clean.clone(),
+                        config,
+                    )
+                )
+
+                # -----------------------------------------------------
+                # Save outputs
+                # -----------------------------------------------------
+
+                outputs = {
+                    "clean": (
+                        clean,
+                        False,
+                    ),
+                    "noisy": (
+                        noisy,
+                        False,
+                    ),
+                    "dendrite_mask": (
+                        dendrite_mask,
+                        True,
+                    ),
+                    "spine_mask": (
+                        spine_mask,
+                        True,
+                    ),
+                    "combined_mask": (
+                        combined_mask,
+                        True,
+                    ),
+                }
+
+                for (
+                    name,
+                    (volume, is_mask),
+                ) in outputs.items():
+
+                    if output_cfg.get(
+                        f"save_{name}",
+                        True,
+                    ):
+
+                        save_tiff(
+                            volume,
+                            instance_dir
+                            / f"{name}.tif",
+                            bit_depth,
+                            xy_um,
+                            z_um,
+                            is_mask=is_mask,
+                        )
+
+                # -----------------------------------------------------
+                # Metadata
+                # -----------------------------------------------------
 
                 if output_cfg.get(
-                    f"save_{name}",
+                    "save_metadata",
                     True,
                 ):
 
-                    save_tiff(
-                        volume,
+                    metadata = {
+                        "instance":
+                            instance_name,
+
+                        "split":
+                            split,
+
+                        "source_sample":
+                            sample["name"],
+
+                        "source_spine_count":
+                            len(sample["spines"]),
+
+                        "rotation":
+                            transform,
+
+                        "center_xyz_nm":
+                            [
+                                float(v)
+                                for v
+                                in center_xyz
+                            ],
+
+                        "output_shape_zyx":
+                            list(shape_zyx),
+
+                        "xy_nm_per_px":
+                            xy_nm,
+
+                        "z_step_um":
+                            z_um,
+
+                        "image_bit_depth":
+                            bit_depth,
+
+                        "renderer":
+                            config["renderer"],
+
+                        "psf":
+                            config["psf"],
+
+                        "noise":
+                            config["noise"],
+
+                        "masks":
+                            config["masks"],
+                    }
+
+                    with open(
                         instance_dir
-                        / f"{name}.tif",
-                        bit_depth,
-                        xy_um,
-                        z_um,
-                        is_mask=is_mask,
-                    )
+                        / "metadata.json",
+                        "w",
+                        encoding="utf-8",
+                    ) as f:
 
-            # ---------------------------------------------------------
-            # Metadata
-            # ---------------------------------------------------------
+                        json.dump(
+                            metadata,
+                            f,
+                            indent=2,
+                        )
 
-            if output_cfg.get(
-                "save_metadata",
-                True,
-            ):
+                # -----------------------------------------------------
+                # GPU cleanup
+                # -----------------------------------------------------
 
-                metadata = {
-                    "instance":
-                        instance_name,
+                del (
+                    dendrite_volume,
+                    spine_volume,
+                    clean,
+                    noisy,
+                    dendrite_mask,
+                    spine_mask,
+                    combined_mask,
+                    psf,
+                )
 
-                    "source_sample":
-                        sample["name"],
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
 
-                    "source_spine_count":
-                        len(sample["spines"]),
-
-                    "rotation":
-                        transform,
-
-                    "center_xyz_nm":
-                        [
-                            float(v)
-                            for v
-                            in center_xyz
-                        ],
-
-                    "output_shape_zyx":
-                        list(shape_zyx),
-
-                    "xy_nm_per_px":
-                        xy_nm,
-
-                    "z_step_um":
-                        z_um,
-
-                    "image_bit_depth":
-                        bit_depth,
-
-                    "renderer":
-                        config["renderer"],
-
-                    "psf":
-                        config["psf"],
-
-                    "noise":
-                        config["noise"],
-
-                    "masks":
-                        config["masks"],
-                }
-
-                with open(
-                    instance_dir
-                    / "metadata.json",
-                    "w",
-                    encoding="utf-8",
-                ) as f:
-
-                    json.dump(
-                        metadata,
-                        f,
-                        indent=2,
-                    )
-
-            # ---------------------------------------------------------
-            # GPU cleanup
-            # ---------------------------------------------------------
-
-            del (
-                dendrite_volume,
-                spine_volume,
-                clean,
-                noisy,
-                dendrite_mask,
-                spine_mask,
-                combined_mask,
-                psf,
+            print(
+                f"Completed: "
+                f"{split}/{instance_name}"
             )
-
-            if device.type == "cuda":
-                torch.cuda.empty_cache()
-
-        print(
-            f"Completed: "
-            f"{instance_name}"
-        )
 
     print()
     print("=" * 60)

@@ -7,26 +7,34 @@
 dataset:
   name: synthetic_dataset_v1
   output_dir: outputs/synthetic_dataset_v1
-  total_instances: 13   # TEST FIRST; later change to 1000
+
+  splits:
+    train: 2
+    validation: 1
+    test: 1
 
 samples:
   sample_001:
     enabled: true
+    split: train
     labelled_dir: data/sample_001
     scale_to_nm: 1000000.0
 
   sample_002:
     enabled: true
+    split: validation
     labelled_dir: data/sample_002
     scale_to_nm: 10000.0
 
   sample_003:
     enabled: true
+    split: test
     labelled_dir: data/sample_003
     scale_to_nm: 1000.0
 
   sample_004:
     enabled: true
+    split: train
     labelled_dir: data/sample_004
     scale_to_nm: 1.0
 
@@ -36,9 +44,9 @@ generation:
 
 grid:
   output_shape_zyx: [64, 128, 128]
-  xy_nm_per_px: 94
+  xy_um_per_px: 0.094
   z_step_um: 0.5
-
+  
 renderer:
   method: voxel_grid
 
