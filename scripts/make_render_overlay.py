@@ -37,7 +37,7 @@ Mask colors in the overlay:
 
 Run from the repository root:
 
-    python scripts/make_overlay.py \
+    python scripts/make_render_overlay.py \
         --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
 
 Generated files:
