@@ -9,9 +9,9 @@ dataset:
   output_dir: outputs/synthetic_dataset_v1
 
   splits:
-    train: 800
-    validation: 100
-    test: 100
+    train: 100
+    validation: 20
+    test: 20
 
 samples:
   sample_001:
