@@ -49,4 +49,4 @@ Thumbs.db
 outputs/
 
 # DeepD3 pretrained model weights
-models/*.h5
+deepd3/models/*.h5
