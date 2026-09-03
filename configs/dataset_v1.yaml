@@ -1,0 +1,82 @@
+# Reproducible command from repository root:
+#
+#   PYTHONPATH=. python scripts/generate_dataset.py --config configs/dataset_v1.yaml
+#
+# This config is intended for dataset generation only, not scripts/render.py.
+
+dataset:
+  name: synthetic_dataset_v1
+  output_dir: outputs/synthetic_dataset_v1
+  total_instances: 5   # TEST FIRST; later change to 1000
+
+samples:
+  sample_001:
+    enabled: false
+    labelled_dir: data/sample_001
+    scale_to_nm: 1000000.0
+
+  sample_002:
+    enabled: false
+    labelled_dir: data/sample_002
+    scale_to_nm: 10000.0
+
+  sample_003:
+    enabled: false
+    labelled_dir: data/sample_003
+    scale_to_nm: 1000.0
+
+  sample_004:
+    enabled: true
+    labelled_dir: data/sample_004
+    scale_to_nm: 1.0
+
+generation:
+  location: geometry_random
+  random_orientation: true
+
+grid:
+  output_shape_zyx: [64, 128, 128]
+  xy_nm_per_px: 94
+  z_step_um: 0.5
+
+renderer:
+  method: voxel_grid
+
+  voxel_grid:
+    spacing_nm: 200
+    batch_faces: 2048
+    labeling_mode: membrane
+    density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
+    density_normalize_sum: true
+
+  gaussian_splatting:
+    labeling_mode: membrane
+
+psf:
+  mode: gaussian_2p
+  lambda_nm: 488.0
+  na: 1.0
+  refractive_index: 1.33
+  shape_zyx: [13, 65, 65]
+  sigma_scale_xy: 1.0
+  sigma_scale_z: 1.0
+
+noise:
+  enabled: true
+  mode: poisson_gaussian
+  peak_photons: 500.0
+  read_noise_std: 5.0
+  gaussian_chunk_slices: 16
+
+masks:
+  dendrite_rel_threshold: 0.1
+  spine_rel_threshold: 0.1
+
+output:
+  image_bit_depth: 8
+  save_clean: true
+  save_noisy: true
+  save_dendrite_mask: true
+  save_spine_mask: true
+  save_combined_mask: true
+  save_metadata: true

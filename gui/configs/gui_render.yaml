@@ -1,8 +1,6 @@
 input:
-  mode: labelled_components
-  labelled_dir: data/sample_004
-  dendrite_pattern: dendrite*.ply
-  spine_pattern: spine*.ply
+  mode: single_mesh
+  mesh_path: data/mesh_001/mesh_001.ply
   scale_to_nm: 1.0
   recenter: false
 output:
@@ -19,16 +17,16 @@ grid:
   - 128
   - 128
   center_xyz_nm:
-  - -9775.742404704753
-  - 16317.537003650286
-  - 5436.530066563122
+  - 2593856.0
+  - 1439222.156389081
+  - 52776.12592059758
   selected_bounds_xyz_nm:
-    xmin: -15791.742404704753
-    xmax: -3759.7424047047534
-    ymin: 10301.537003650286
-    ymax: 22333.537003650286
-    zmin: -10563.469933436878
-    zmax: 21436.530066563122
+    xmin: 2587840.0
+    xmax: 2599872.0
+    ymin: 1433206.156389081
+    ymax: 1445238.156389081
+    zmin: 36776.12592059758
+    zmax: 68776.12592059758
 renderer:
   method: voxel_grid
   labeling_mode: membrane

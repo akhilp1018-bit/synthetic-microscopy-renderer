@@ -74,6 +74,7 @@ Clone the repository and enter its root directory:
 git clone https://github.com/akhilp1018-bit/synthetic-microscopy-renderer.git
 cd synthetic-microscopy-renderer
 ```
+Python 3.12.10 is needed
 
 Create and activate a virtual environment:
 
@@ -302,3 +303,45 @@ python gui/app.py
 ```
 
 See `gui/README.md` for detailed GUI usage instructions.
+
+## Synthetic dataset generation
+
+A separate dataset-generation script is available for creating multiple
+synthetic training instances from labelled dendrite and spine meshes.
+
+The dataset generator supports random mesh orientations and random
+locations along the dendrite while using the same rendering components
+as the main renderer.
+
+The dataset configuration is:
+
+```text
+configs/dataset_v1.yaml
+```
+
+This configuration is intended for `scripts/generate_dataset.py` and is
+separate from the configurations used by `scripts/render.py`.
+
+Run the dataset generator from the repository root:
+
+```bash
+PYTHONPATH=. python scripts/generate_dataset.py --config configs/dataset_v1.yaml
+```
+
+The number of generated instances, image size, XY sampling, renderer,
+PSF, noise model, mask thresholds, and output bit depth are controlled
+through the YAML configuration.
+
+For each dataset instance, the generator can save:
+
+```text
+clean.tif
+noisy.tif
+dendrite_mask.tif
+spine_mask.tif
+combined_mask.tif
+metadata.json
+```
+
+The ground-truth masks are generated from the clean rendered components
+before microscopy noise is added.
