@@ -4,6 +4,19 @@ visualize_dataset_overlay.py
 
 Create contact-sheet previews for the generated synthetic microscopy dataset.
 
+Expected dataset structure:
+
+    synthetic_dataset_v1/
+    ├── train/
+    │   ├── instance_000001/
+    │   └── ...
+    ├── validation/
+    │   ├── instance_000001/
+    │   └── ...
+    └── test/
+        ├── instance_000001/
+        └── ...
+
 For each instance folder, the script reads:
 
     - noisy.tif
@@ -24,7 +37,7 @@ Overlay colors:
 
 The microscopy image is shown in grayscale.
 
-Reproducible command from repository root:
+Run from repository root:
 
     PYTHONPATH=. python scripts/visualize_dataset_overlay.py \
         --output-dir outputs/synthetic_dataset_v1
@@ -143,14 +156,14 @@ def read_instance(instance_dir):
 
     if dendrite.shape != image.shape:
         raise ValueError(
-            f"Shape mismatch in {instance_dir.name}: "
+            f"Shape mismatch in {instance_dir}: "
             f"image={image.shape}, "
             f"dendrite={dendrite.shape}"
         )
 
     if spine.shape != image.shape:
         raise ValueError(
-            f"Shape mismatch in {instance_dir.name}: "
+            f"Shape mismatch in {instance_dir}: "
             f"image={image.shape}, "
             f"spine={spine.shape}"
         )
@@ -251,9 +264,8 @@ def make_overlay_tile(
         * dendrite_color
     )
 
-    # Spine overlay.
-    # Spine is applied second so it remains visible
-    # where the masks overlap.
+    # Spine overlay applied second
+    # so spine remains visible on overlap.
     base[spine_pixels] = (
         (1.0 - SPINE_ALPHA)
         * base[spine_pixels]
@@ -351,7 +363,7 @@ def add_label(
     label,
 ):
     """
-    Add instance name above tile.
+    Add split/instance label above tile.
     """
 
     height, width, _ = (
@@ -492,6 +504,7 @@ def save_review_csv(
 
     fieldnames = [
         "index",
+        "split",
         "instance",
         "path",
         "image_nonzero",
@@ -535,8 +548,8 @@ def main():
         "--output-dir",
         default=DEFAULT_DATASET_ROOT,
         help=(
-            "Dataset output directory containing "
-            "instance_* folders."
+            "Dataset root containing train, "
+            "validation and test folders."
         ),
     )
 
@@ -582,14 +595,40 @@ def main():
         exist_ok=True,
     )
 
-    instance_dirs = sorted(
-        path
-        for path
-        in dataset_root.glob(
-            "instance_*"
-        )
-        if path.is_dir()
+    # ------------------------------------------------------
+    # Find instances inside train/validation/test
+    # ------------------------------------------------------
+
+    valid_splits = (
+        "train",
+        "validation",
+        "test",
     )
+
+    instance_dirs = []
+
+    for split in valid_splits:
+
+        split_dir = (
+            dataset_root
+            / split
+        )
+
+        if not split_dir.exists():
+            continue
+
+        split_instances = sorted(
+            path
+            for path
+            in split_dir.glob(
+                "instance_*"
+            )
+            if path.is_dir()
+        )
+
+        instance_dirs.extend(
+            split_instances
+        )
 
     if args.max_instances is not None:
         instance_dirs = (
@@ -601,10 +640,14 @@ def main():
     if not instance_dirs:
         raise RuntimeError(
             f"No instance_* folders found "
-            f"in {dataset_root}"
+            f"inside train/validation/test "
+            f"under {dataset_root}"
         )
 
+    # ------------------------------------------------------
     # Automatic layout
+    # ------------------------------------------------------
+
     if args.grid_cols is None:
 
         if len(instance_dirs) <= 5:
@@ -660,8 +703,17 @@ def main():
         start=1,
     ):
 
+        split_name = (
+            instance_dir.parent.name
+        )
+
         instance_name = (
             instance_dir.name
+        )
+
+        display_label = (
+            f"{split_name}/"
+            f"{instance_name}"
         )
 
         data = read_instance(
@@ -671,7 +723,7 @@ def main():
         if data is None:
             print(
                 f"Skipping incomplete instance: "
-                f"{instance_name}"
+                f"{display_label}"
             )
             continue
 
@@ -710,17 +762,17 @@ def main():
 
         image_tile = add_label(
             image_tile,
-            instance_name,
+            display_label,
         )
 
         overlay_tile = add_label(
             overlay_tile,
-            instance_name,
+            display_label,
         )
 
         mask_tile = add_label(
             mask_tile,
-            instance_name,
+            display_label,
         )
 
         image_tiles.append(
@@ -738,6 +790,9 @@ def main():
         review_rows.append({
             "index":
                 index,
+
+            "split":
+                split_name,
 
             "instance":
                 instance_name,

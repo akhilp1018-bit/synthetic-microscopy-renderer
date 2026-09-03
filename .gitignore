@@ -44,3 +44,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Generated outputs
+outputs/
+
+# DeepD3 pretrained model weights
+models/*.h5
