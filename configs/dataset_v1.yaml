@@ -11,17 +11,17 @@ dataset:
 
 samples:
   sample_001:
-    enabled: false
+    enabled: true
     labelled_dir: data/sample_001
     scale_to_nm: 1000000.0
 
   sample_002:
-    enabled: false
+    enabled: true
     labelled_dir: data/sample_002
     scale_to_nm: 10000.0
 
   sample_003:
-    enabled: false
+    enabled: true
     labelled_dir: data/sample_003
     scale_to_nm: 1000.0
 
