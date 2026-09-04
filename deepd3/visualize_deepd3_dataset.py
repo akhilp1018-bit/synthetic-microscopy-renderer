@@ -1,9 +1,9 @@
 """
-visualize_deepd3_matching_dataset.py
-------------------------------------
+Visualize DeepD3 Dataset
+------------------------
 
-Create a qualitative DeepD3 spine-detection visualization for one
-synthetic dataset instance.
+Create qualitative DeepD3 spine-detection visualizations for
+synthetic dataset instances.
 
 For each model, the figure contains:
 
@@ -12,8 +12,8 @@ For each model, the figure contains:
     3. DeepD3 spine probability - XY maximum projection
     4. GT + predicted spine centers with matching
 
-The visualization uses the SAME object-level evaluation settings as
-the quantitative DeepD3 evaluation:
+The visualization uses the SAME object-level evaluation settings
+as the quantitative DeepD3 evaluation:
 
     XY spacing = 94 nm
     Z spacing  = 500 nm
@@ -22,36 +22,44 @@ the quantitative DeepD3 evaluation:
     Local-max neighborhood   = (5, 9, 9) ZYX
     Matching distance        = 1000 nm
 
-The DeepD3 detection threshold is loaded from:
+DeepD3 detection thresholds are loaded from the VALIDATION set:
 
     outputs/synthetic_dataset_v1/
         deepd3_evaluation/
         validation/
         selected_thresholds.json
 
-Therefore TEST visualization uses thresholds selected on VALIDATION.
+Therefore TEST visualization uses thresholds selected on
+VALIDATION and does not tune thresholds on the test set.
+
 
 Usage
 -----
 
-From repository root:
+Visualize one test instance:
 
-    python deepd3/visualize_deepd3_matching_dataset.py \
+    python deepd3/visualize_deepd3_dataset.py \
         --split test \
         --instance instance_000001
 
+Visualize ALL test instances:
+
+    python deepd3/visualize_deepd3_dataset.py \
+        --split test \
+        --instance all
+
 Only 32F:
 
-    python deepd3/visualize_deepd3_matching_dataset.py \
+    python deepd3/visualize_deepd3_dataset.py \
         --split test \
-        --instance instance_000001 \
+        --instance all \
         --model 32F
 
 Only 32F_94nm:
 
-    python deepd3/visualize_deepd3_matching_dataset.py \
+    python deepd3/visualize_deepd3_dataset.py \
         --split test \
-        --instance instance_000001 \
+        --instance all \
         --model 32F_94nm
 """
 
@@ -121,7 +129,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Visualize DeepD3 spine-center matching "
-            "for a synthetic dataset instance."
+            "for synthetic dataset instances."
         )
     )
 
@@ -150,8 +158,9 @@ def parse_args():
         "--instance",
         default="instance_000001",
         help=(
-            "Dataset instance. "
-            "Example: instance_000001"
+            "Dataset instance, for example instance_000001. "
+            "Use 'all' to visualize every instance "
+            "in the selected split."
         ),
     )
 
@@ -180,9 +189,6 @@ def require_file(
     path: Path,
     description: str,
 ):
-    """
-    Make sure a required file exists.
-    """
 
     if not path.is_file():
 
@@ -193,9 +199,6 @@ def require_file(
 
 
 def normalize01(arr):
-    """
-    Normalize array to [0, 1].
-    """
 
     arr = np.asarray(
         arr,
@@ -237,10 +240,6 @@ def normalize01(arr):
 def load_spine_probability(
     path: Path,
 ):
-    """
-    Load the spine-probability volume
-    from a DeepD3 .prediction file.
-    """
 
     data = fl.load(
         str(path)
@@ -287,14 +286,6 @@ def load_spine_probability(
 def extract_detection_threshold(
     model_data,
 ):
-    """
-    Find the spine-detection threshold in the saved
-    selected_thresholds.json.
-
-    Several possible key names are supported so that the
-    visualization remains robust if the exact JSON naming
-    changes slightly.
-    """
 
     possible_keys = (
         "spine_detection_threshold",
@@ -320,9 +311,6 @@ def extract_detection_threshold(
 def load_detection_thresholds(
     dataset_root: Path,
 ):
-    """
-    Load thresholds selected on VALIDATION.
-    """
 
     threshold_path = (
         dataset_root
@@ -376,14 +364,6 @@ def load_detection_thresholds(
 def extract_gt_centers(
     spine_mask,
 ):
-    """
-    Extract one 3D center of mass for each connected
-    GT spine component.
-
-    Coordinates are returned as:
-
-        Z, Y, X
-    """
 
     binary = (
         np.asarray(
@@ -426,15 +406,6 @@ def detect_predicted_centers(
     spine_probability,
     threshold,
 ):
-    """
-    Detect DeepD3 spine centers using:
-
-        Gaussian smoothing
-        3D local maxima
-        probability threshold
-
-    Same principle used in quantitative evaluation.
-    """
 
     smoothed = gaussian_filter(
         spine_probability,
@@ -456,11 +427,9 @@ def detect_predicted_centers(
         peak_mask
     )
 
-    centers = centers.astype(
+    return centers.astype(
         np.float64
     )
-
-    return centers
 
 
 # ==========================================================
@@ -471,9 +440,6 @@ def calculate_distance_matrix_nm(
     gt_centers,
     pred_centers,
 ):
-    """
-    Pairwise GT-to-prediction physical distances in nm.
-    """
 
     n_gt = len(
         gt_centers
@@ -530,16 +496,6 @@ def match_centers(
     gt_centers,
     pred_centers,
 ):
-    """
-    Match GT and predicted centers.
-
-    All candidate pairs within MATCH_DISTANCE_NM are sorted
-    by physical distance.
-
-    The shortest available pair is matched first.
-
-    Each GT and each prediction may be used only once.
-    """
 
     distances = (
         calculate_distance_matrix_nm(
@@ -578,7 +534,6 @@ def match_centers(
                     )
                 )
 
-    # Globally shortest distances first
     candidates.sort(
         key=lambda item: item[0]
     )
@@ -628,10 +583,6 @@ def calculate_metrics(
     pred_centers,
     matches,
 ):
-    """
-    Calculate object-level TP / FP / FN and
-    precision / recall / F1.
-    """
 
     tp = len(
         matches
@@ -704,9 +655,6 @@ def create_matching_figure(
     instance,
     output_path,
 ):
-    """
-    Generate the 4-panel qualitative figure.
-    """
 
     # ------------------------------------------------------
     # XY maximum projections
@@ -784,10 +732,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
-    # Panel 1: image
-    # ------------------------------------------------------
-
+    # Panel 1: synthetic image
     axes[0].imshow(
         noisy_mip,
         cmap="gray",
@@ -801,10 +746,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
     # Panel 2: GT spine mask
-    # ------------------------------------------------------
-
     axes[1].imshow(
         spine_gt_mip,
         cmap="gray",
@@ -818,10 +760,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
     # Panel 3: DeepD3 probability
-    # ------------------------------------------------------
-
     axes[2].imshow(
         spine_probability_mip,
         cmap="hot",
@@ -835,10 +774,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
     # Panel 4: matching overlay
-    # ------------------------------------------------------
-
     axes[3].imshow(
         noisy_mip,
         cmap="gray",
@@ -934,10 +870,7 @@ def create_matching_figure(
         )
 
 
-    # ------------------------------------------------------
     # Matching lines
-    # ------------------------------------------------------
-
     for (
         gt_index,
         pred_index,
@@ -979,10 +912,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
     # Remove axes
-    # ------------------------------------------------------
-
     for ax in axes:
 
         ax.axis(
@@ -990,10 +920,7 @@ def create_matching_figure(
         )
 
 
-    # ------------------------------------------------------
     # Figure title + metrics
-    # ------------------------------------------------------
-
     fig.suptitle(
         (
             f"{split}/{instance} — DeepD3 {model}\n"
@@ -1020,10 +947,7 @@ def create_matching_figure(
     )
 
 
-    # ------------------------------------------------------
     # Save
-    # ------------------------------------------------------
-
     fig.savefig(
         output_path,
         dpi=220,
@@ -1036,21 +960,22 @@ def create_matching_figure(
 
 
 # ==========================================================
-# Main
+# Process one dataset instance
 # ==========================================================
 
-def main():
-
-    args = parse_args()
-
-    dataset_root = (
-        args.dataset.resolve()
-    )
+def process_instance(
+    dataset_root,
+    split,
+    instance_name,
+    selected_models,
+    thresholds,
+    threshold_path,
+):
 
     instance_dir = (
         dataset_root
-        / args.split
-        / args.instance
+        / split
+        / instance_name
     )
 
 
@@ -1117,19 +1042,7 @@ def main():
 
 
     # ------------------------------------------------------
-    # Validation-selected thresholds
-    # ------------------------------------------------------
-
-    (
-        thresholds,
-        threshold_path,
-    ) = load_detection_thresholds(
-        dataset_root
-    )
-
-
-    # ------------------------------------------------------
-    # GT centers
+    # Extract GT centers
     # ------------------------------------------------------
 
     gt_centers = (
@@ -1137,24 +1050,6 @@ def main():
             spine_gt
         )
     )
-
-
-    # ------------------------------------------------------
-    # Models to visualize
-    # ------------------------------------------------------
-
-    if args.model == "both":
-
-        selected_models = (
-            "32F",
-            "32F_94nm",
-        )
-
-    else:
-
-        selected_models = (
-            args.model,
-        )
 
 
     # ------------------------------------------------------
@@ -1191,11 +1086,11 @@ def main():
     )
 
     print(
-        f"Split      : {args.split}"
+        f"Split      : {split}"
     )
 
     print(
-        f"Instance   : {args.instance}"
+        f"Instance   : {instance_name}"
     )
 
     print(
@@ -1242,10 +1137,6 @@ def main():
         )
 
 
-        # ----------------------------------------------
-        # Load prediction
-        # ----------------------------------------------
-
         spine_probability = (
             load_spine_probability(
                 prediction_path
@@ -1265,10 +1156,7 @@ def main():
             )
 
 
-        # ----------------------------------------------
         # Frozen validation threshold
-        # ----------------------------------------------
-
         threshold = (
             thresholds[
                 model
@@ -1276,10 +1164,7 @@ def main():
         )
 
 
-        # ----------------------------------------------
         # Detect predicted centers
-        # ----------------------------------------------
-
         pred_centers = (
             detect_predicted_centers(
                 spine_probability,
@@ -1288,10 +1173,7 @@ def main():
         )
 
 
-        # ----------------------------------------------
         # GT-to-prediction matching
-        # ----------------------------------------------
-
         matches = (
             match_centers(
                 gt_centers,
@@ -1300,10 +1182,7 @@ def main():
         )
 
 
-        # ----------------------------------------------
         # Metrics
-        # ----------------------------------------------
-
         metrics = (
             calculate_metrics(
                 gt_centers,
@@ -1313,10 +1192,7 @@ def main():
         )
 
 
-        # ----------------------------------------------
         # Save figure
-        # ----------------------------------------------
-
         output_path = (
             output_dir
             / f"matching_{model}.png"
@@ -1333,16 +1209,13 @@ def main():
             metrics=metrics,
             threshold=threshold,
             model=model,
-            split=args.split,
-            instance=args.instance,
+            split=split,
+            instance=instance_name,
             output_path=output_path,
         )
 
 
-        # ----------------------------------------------
         # Terminal output
-        # ----------------------------------------------
-
         print()
 
         print(
@@ -1388,6 +1261,176 @@ def main():
         )
 
 
+# ==========================================================
+# Main
+# ==========================================================
+
+def main():
+
+    args = parse_args()
+
+    dataset_root = (
+        args.dataset.resolve()
+    )
+
+
+    # ------------------------------------------------------
+    # Load frozen validation thresholds once
+    # ------------------------------------------------------
+
+    (
+        thresholds,
+        threshold_path,
+    ) = load_detection_thresholds(
+        dataset_root
+    )
+
+
+    # ------------------------------------------------------
+    # Select model(s)
+    # ------------------------------------------------------
+
+    if args.model == "both":
+
+        selected_models = (
+            "32F",
+            "32F_94nm",
+        )
+
+    else:
+
+        selected_models = (
+            args.model,
+        )
+
+
+    # ------------------------------------------------------
+    # Select instance(s)
+    # ------------------------------------------------------
+
+    split_dir = (
+        dataset_root
+        / args.split
+    )
+
+
+    if not split_dir.is_dir():
+
+        raise FileNotFoundError(
+            f"Split directory not found:\n"
+            f"  {split_dir}"
+        )
+
+
+    if args.instance.lower() == "all":
+
+        instance_dirs = sorted(
+            path
+            for path in split_dir.glob(
+                "instance_*"
+            )
+            if path.is_dir()
+        )
+
+
+        if not instance_dirs:
+
+            raise FileNotFoundError(
+                f"No instance directories found in:\n"
+                f"  {split_dir}"
+            )
+
+
+        instance_names = [
+            path.name
+            for path in instance_dirs
+        ]
+
+
+        print()
+
+        print(
+            "=" * 70
+        )
+
+        print(
+            "Visualize DeepD3 Dataset"
+        )
+
+        print(
+            "=" * 70
+        )
+
+        print(
+            f"Split     : {args.split}"
+        )
+
+        print(
+            f"Instances : {len(instance_names)}"
+        )
+
+        print(
+            f"Models    : {', '.join(selected_models)}"
+        )
+
+        print(
+            "=" * 70
+        )
+
+    else:
+
+        instance_names = [
+            args.instance
+        ]
+
+
+    # ------------------------------------------------------
+    # Process selected instances
+    # ------------------------------------------------------
+
+    total_instances = len(
+        instance_names
+    )
+
+
+    for index, instance_name in enumerate(
+        instance_names,
+        start=1,
+    ):
+
+        if total_instances > 1:
+
+            print()
+
+            print(
+                "#" * 70
+            )
+
+            print(
+                f"Processing instance "
+                f"{index}/{total_instances}: "
+                f"{instance_name}"
+            )
+
+            print(
+                "#" * 70
+            )
+
+
+        process_instance(
+            dataset_root=dataset_root,
+            split=args.split,
+            instance_name=instance_name,
+            selected_models=selected_models,
+            thresholds=thresholds,
+            threshold_path=threshold_path,
+        )
+
+
+    # ------------------------------------------------------
+    # Final summary
+    # ------------------------------------------------------
+
     print()
 
     print(
@@ -1396,6 +1439,15 @@ def main():
 
     print(
         "Visualization complete"
+    )
+
+    print(
+        f"Processed {total_instances} "
+        f"instance(s)."
+    )
+
+    print(
+        f"Split: {args.split}"
     )
 
     print(
