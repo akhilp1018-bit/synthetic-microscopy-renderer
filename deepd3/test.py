@@ -20,13 +20,23 @@ print("max:", spines.max())
 
 mip = spines.max(axis=0)
 
+plt.figure(figsize=(6, 6))
 plt.imshow(
     mip,
     cmap="hot",
     vmin=0,
     vmax=1,
 )
-
-plt.title("RAW DeepD3 spine probability MIP")
+plt.title("Raw DeepD3 spine probability MIP")
 plt.axis("off")
-plt.show()
+plt.tight_layout()
+
+plt.savefig(
+    "raw_spine_mip_000017_32F.png",
+    dpi=200,
+    bbox_inches="tight",
+)
+
+plt.close()
+
+print("Saved: raw_spine_mip_000017_32F.png")
