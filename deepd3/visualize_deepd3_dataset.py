@@ -415,6 +415,7 @@ def detect_predicted_centers(
     local_maximum = maximum_filter(
         smoothed,
         size=NEIGHBORHOOD_ZYX,
+        mode="nearest",
     )
 
     peak_mask = (
