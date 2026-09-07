@@ -86,13 +86,12 @@ PEAK_SMOOTH_SIGMA = 1.0
 
 DEFAULT_MATCH_DISTANCE_NM = 1000.0
 
-# Do not include 0.0.
-THRESHOLDS = np.arange(
-    0.02,
-    1.0001,
-    0.02,
-)
 
+THRESHOLDS = np.arange(
+    0.0,
+    1.0001,
+    0.01,
+)
 MATCH_DISTANCES_NM = np.arange(
     0.0,
     20000.0 + 1.0,
