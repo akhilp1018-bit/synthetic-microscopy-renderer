@@ -4,8 +4,11 @@ run_deepd3_dataset.py
 
 Run pretrained DeepD3 models on a synthetic microscopy dataset.
 
-The script processes all instances in a selected dataset split and runs
-DeepD3 inference on the requested input image of each instance.
+This version uses DeepD3 whole-image inference:
+
+    Stack.predictWholeImage(...)
+
+The raw, uncleaned probability maps are saved directly after inference.
 
 Expected project structure
 --------------------------
@@ -22,50 +25,40 @@ outputs/
     ├── validation/
     └── test/
 
-The pretrained DeepD3 model files are not included in this repository
-and must be downloaded separately.
-
 Usage
 -----
 
 Run from the repository root.
 
-Process the complete test split:
+Process complete test split:
 
     python deepd3/run_deepd3_dataset.py
 
-Process only one instance:
-
-    python deepd3/run_deepd3_dataset.py --max-instances 1
-
-Process another split:
+Process validation split:
 
     python deepd3/run_deepd3_dataset.py --split validation
 
-Use another input image filename:
+Process only one instance:
+
+    python deepd3/run_deepd3_dataset.py \
+        --split validation \
+        --max-instances 1
+
+Use another input image:
 
     python deepd3/run_deepd3_dataset.py \
         --image-name clean.tif
 
-Use a custom dataset:
-
-    python deepd3/run_deepd3_dataset.py \
-        --dataset outputs/another_dataset
-
-Use custom model paths:
-
-    python deepd3/run_deepd3_dataset.py \
-        --model-32f path/to/DeepD3_32F.h5 \
-        --model-32f-94nm path/to/DeepD3_32F_94nm.h5
-
 Overwrite existing predictions:
 
-    python deepd3/run_deepd3_dataset.py --overwrite
+    python deepd3/run_deepd3_dataset.py \
+        --split validation \
+        --overwrite
 
 Output
 ------
 
-Predictions are stored inside each processed dataset instance:
+Predictions are stored inside each dataset instance:
 
 instance_XXXXXX/
 └── deepd3_predictions/
@@ -119,7 +112,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Run pretrained DeepD3 models on synthetic data "
-            "and save raw, uncleaned probability maps."
+            "using whole-image inference and save raw, "
+            "uncleaned probability maps."
         )
     )
 
@@ -127,52 +121,47 @@ def parse_args():
         "--dataset",
         type=Path,
         default=DEFAULT_DATASET,
+        help="Root directory of the synthetic dataset.",
     )
 
     parser.add_argument(
         "--split",
         choices=("train", "validation", "test"),
         default="test",
+        help="Dataset split to process.",
     )
 
     parser.add_argument(
         "--model-32f",
         type=Path,
         default=DEFAULT_MODEL_32F,
+        help="Path to DeepD3 32F model.",
     )
 
     parser.add_argument(
         "--model-32f-94nm",
         type=Path,
         default=DEFAULT_MODEL_32F_94NM,
+        help="Path to DeepD3 32F 94 nm model.",
     )
 
     parser.add_argument(
         "--image-name",
         default="noisy.tif",
+        help="Input image filename inside each instance.",
     )
 
     parser.add_argument(
         "--max-instances",
         type=int,
         default=None,
-    )
-
-    parser.add_argument(
-        "--tile-size",
-        type=int,
-        default=128,
-    )
-
-    parser.add_argument(
-        "--inset-size",
-        type=int,
-        default=96,
+        help="Optional maximum number of instances to process.",
     )
 
     parser.add_argument(
         "--overwrite",
         action="store_true",
+        help="Overwrite existing prediction files.",
     )
 
     return parser.parse_args()
@@ -182,7 +171,10 @@ def parse_args():
 # Helpers
 # ==========================================================
 
-def require_file(path: Path, description: str):
+def require_file(
+    path: Path,
+    description: str,
+):
     if not path.is_file():
         raise FileNotFoundError(
             f"{description} not found:\n"
@@ -217,8 +209,6 @@ def run_model(
     model_path: Path,
     model_tag: str,
     output_dir: Path,
-    tile_size: int,
-    inset_size: int,
     overwrite: bool,
 ):
 
@@ -232,6 +222,10 @@ def run_model(
         / f"{model_tag}.prediction"
     )
 
+    # ------------------------------------------------------
+    # Skip existing output unless overwrite was requested
+    # ------------------------------------------------------
+
     if (
         final_output.exists()
         and not overwrite
@@ -239,6 +233,7 @@ def run_model(
         print(
             f"    {model_tag}: already exists, skipping"
         )
+
         return final_output
 
     print(
@@ -254,35 +249,60 @@ def run_model(
     )
 
     # ------------------------------------------------------
-    # Load stack
+    # Load image stack
     # ------------------------------------------------------
 
     stack = Stack(
         str(image_path)
     )
-    
-    stack.predictInset(
-        str(model_path),
-        tile_size,
-        inset_size,
+
+    # ------------------------------------------------------
+    # DeepD3 whole-image inference
+    #
+    # Important:
+    # No predictInset()
+    # No tiling/padding reconstruction
+    # No cleaning
+    # ------------------------------------------------------
+
+    stack.predictWholeImage(
+        str(model_path)
     )
+
+    # ------------------------------------------------------
+    # Get RAW prediction
+    # ------------------------------------------------------
 
     prediction = np.asarray(
         stack.prediction,
         dtype=np.float32,
     )
 
-    if prediction.ndim < 4:
+    print(
+        f"      Prediction shape          : "
+        f"{prediction.shape}"
+    )
+
+    # Expected:
+    # Z x Y x X x channels
+
+    if prediction.ndim != 4:
         raise ValueError(
-            f"Unexpected DeepD3 prediction shape: "
-            f"{prediction.shape}"
+            "Unexpected DeepD3 prediction shape: "
+            f"{prediction.shape}. "
+            "Expected a 4D array "
+            "(Z, Y, X, channels)."
         )
 
     if prediction.shape[-1] < 2:
         raise ValueError(
-            f"Expected at least two prediction channels, "
+            "Expected at least two prediction channels, "
             f"got shape {prediction.shape}"
         )
+
+    # ------------------------------------------------------
+    # Extract RAW probability channels
+    # ------------------------------------------------------
 
     dendrites = (
         prediction[..., 0]
@@ -304,6 +324,14 @@ def run_model(
     # Diagnostic information
     # ------------------------------------------------------
 
+    dendrite_nan_count = int(
+        np.isnan(dendrites).sum()
+    )
+
+    spine_nan_count = int(
+        np.isnan(spines).sum()
+    )
+
     print(
         "      Dendrite probability range: "
         f"{float(np.nanmin(dendrites)):.8f} "
@@ -319,6 +347,16 @@ def run_model(
     )
 
     print(
+        f"      Dendrite NaN count        : "
+        f"{dendrite_nan_count}"
+    )
+
+    print(
+        f"      Spine NaN count           : "
+        f"{spine_nan_count}"
+    )
+
+    print(
         "      Dendrite unique values    : "
         f"{len(np.unique(dendrites))}"
     )
@@ -330,16 +368,19 @@ def run_model(
 
     # ------------------------------------------------------
     # Save RAW probabilities
+    #
+    # Important:
+    # - no np.clip()
+    # - no thresholding
+    # - no cleanSpines()
+    # - no cleanDendrite()
     # ------------------------------------------------------
 
     fl.save(
         str(final_output),
         {
-            "dendrites":
-                dendrites,
-
-            "spines":
-                spines,
+            "dendrites": dendrites,
+            "spines": spines,
         },
         compression="blosc",
     )
@@ -369,17 +410,25 @@ def main():
         / args.split
     )
 
+    # ------------------------------------------------------
+    # Validate dataset
+    # ------------------------------------------------------
+
     if not dataset_root.is_dir():
         raise FileNotFoundError(
-            f"Dataset directory not found:\n"
+            "Dataset directory not found:\n"
             f"  {dataset_root}"
         )
 
     if not split_dir.is_dir():
         raise FileNotFoundError(
-            f"Dataset split not found:\n"
+            "Dataset split not found:\n"
             f"  {split_dir}"
         )
+
+    # ------------------------------------------------------
+    # Validate models
+    # ------------------------------------------------------
 
     model_32f = (
         args.model_32f.resolve()
@@ -404,12 +453,15 @@ def main():
             "32F",
             model_32f,
         ),
-
         (
             "32F_94nm",
             model_32f_94nm,
         ),
     ]
+
+    # ------------------------------------------------------
+    # Find dataset instances
+    # ------------------------------------------------------
 
     instance_dirs = sorted(
         path
@@ -437,38 +489,48 @@ def main():
             "No dataset instances found."
         )
 
+    # ------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------
+
     print()
     print("=" * 70)
+
     print(
         "DeepD3 RAW probability inference"
     )
-    print("=" * 70)
-
-    print(
-        f"Dataset     : {dataset_root}"
-    )
-
-    print(
-        f"Split       : {args.split}"
-    )
-
-    print(
-        f"Instances   : {len(instance_dirs)}"
-    )
-
-    print(
-        f"Input image : {args.image_name}"
-    )
-
-    print(
-        f"Tile size   : {args.tile_size}"
-    )
-
-    print(
-        f"Inset size  : {args.inset_size}"
-    )
 
     print("=" * 70)
+
+    print(
+        f"Dataset          : {dataset_root}"
+    )
+
+    print(
+        f"Split            : {args.split}"
+    )
+
+    print(
+        f"Instances        : {len(instance_dirs)}"
+    )
+
+    print(
+        f"Input image      : {args.image_name}"
+    )
+
+    print(
+        "Inference method : predictWholeImage"
+    )
+
+    print(
+        "Cleaning         : disabled"
+    )
+
+    print("=" * 70)
+
+    # ------------------------------------------------------
+    # Process instances
+    # ------------------------------------------------------
 
     completed = 0
 
@@ -478,6 +540,7 @@ def main():
     ):
 
         print()
+
         print(
             f"[{index}/{len(instance_dirs)}] "
             f"{instance_dir.name}"
@@ -505,18 +568,22 @@ def main():
                 model_path=model_path,
                 model_tag=model_tag,
                 output_dir=prediction_dir,
-                tile_size=args.tile_size,
-                inset_size=args.inset_size,
                 overwrite=args.overwrite,
             )
 
         completed += 1
 
+    # ------------------------------------------------------
+    # Final summary
+    # ------------------------------------------------------
+
     print()
     print("=" * 70)
+
     print(
         "DeepD3 raw inference complete"
     )
+
     print("=" * 70)
 
     print(
