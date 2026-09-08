@@ -159,7 +159,6 @@ def check_dataset(
     dataset_file: Path,
     batch_size: int = 4,
 ):
-    # Import here so --prepare does not unnecessarily load TensorFlow.
     from deepd3.training.stream import DataGeneratorStream
 
     print()
@@ -226,9 +225,8 @@ def train(
     batch_size: int = 32,
     epochs: int = 30,
     samples_per_epoch: int = 50000,
+    validation_samples: int = 1280,
 ):
-    # DeepD3's official notebook sets this before importing
-    # segmentation_models.
     os.environ["SM_FRAMEWORK"] = "tf.keras"
 
     import tensorflow as tf
@@ -265,14 +263,15 @@ def train(
     print("=" * 70)
     print("DeepD3 synthetic training")
     print("=" * 70)
-    print(f"Training data:    {train_file}")
-    print(f"Validation data:  {validation_file}")
-    print(f"Batch size:       {batch_size}")
-    print(f"Samples/epoch:    {samples_per_epoch}")
-    print(f"Epochs:           {epochs}")
-    print(f"Resolution:       0.094 µm")
-    print(f"Model output:     {model_path}")
-    print(f"Training log:     {log_path}")
+    print(f"Training data:       {train_file}")
+    print(f"Validation data:     {validation_file}")
+    print(f"Batch size:          {batch_size}")
+    print(f"Training samples:    {samples_per_epoch}")
+    print(f"Validation samples:  {validation_samples}")
+    print(f"Epochs:              {epochs}")
+    print(f"Resolution:          0.094 µm")
+    print(f"Model output:        {model_path}")
+    print(f"Training log:        {log_path}")
     print("=" * 70)
 
     # --------------------------------------------------------
@@ -293,7 +292,7 @@ def train(
     dg_validation = DataGeneratorStream(
         str(validation_file),
         batch_size=batch_size,
-        samples_per_epoch=samples_per_epoch,
+        samples_per_epoch=validation_samples,
         size=(1, 128, 128),
         target_resolution=0.094,
         min_content=50,
@@ -326,7 +325,7 @@ def train(
     model.summary()
 
     # --------------------------------------------------------
-    # Learning-rate schedule from official notebook
+    # Learning-rate schedule
     # --------------------------------------------------------
 
     def schedule(epoch, lr):
@@ -424,6 +423,12 @@ def main():
     )
 
     parser.add_argument(
+        "--validation-samples",
+        type=int,
+        default=1280,
+    )
+
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path(
@@ -495,6 +500,7 @@ def main():
             batch_size=args.batch_size,
             epochs=args.epochs,
             samples_per_epoch=args.samples_per_epoch,
+            validation_samples=args.validation_samples,
         )
 
 
