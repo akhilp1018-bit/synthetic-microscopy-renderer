@@ -4,7 +4,7 @@ import numpy as np
 import tifffile
 import flammkuchen as fl
 
-from deepd3.core.stack import Stack
+from deepd3.core.analysis import Stack
 
 
 # ---------------------------------------------------------
