@@ -9,44 +9,40 @@ __pycache__/
 venv/
 thesis_env/
 deepd3_env/
+deepd3_gpu/
 
-# Editor
+# Editors
 .vscode/
 .idea/
 
-# Large mesh files
+# OS
+.DS_Store
+Thumbs.db
+
+# Large mesh/data files
 *.ply
 *.obj
 *.stl
+*.tif
+*.tiff
+*.zip
+*.npy
+*.npz
+*.zarr
 
 # Generated outputs
 outputs/
 *.png
 *.jpg
 *.jpeg
-*.npy
-*.npz
-*.h5
-*.hdf5
-*.zarr
 *.log
 
+# Local/raw data
 data/
-outputs/
-*.ply
-*.obj
-*.tif
-*.tiff
-*.zip
-__pycache__/
-*.pyc
 
-# OS
-.DS_Store
-Thumbs.db
+# DeepD3 model weights
+*.h5
+*.hdf5
 
-# Generated outputs
-outputs/
-
-# DeepD3 pretrained model weights
-deepd3/models/*.h5
+# External DeepD3 benchmark dataset
+benchmarks/deepd3/
