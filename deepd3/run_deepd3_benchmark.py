@@ -78,9 +78,7 @@ def run_model(
     # -----------------------------------------------------
 
     stack = Stack(
-        str(image_path),
-        resolution_xy=resolution_xy,
-        resolution_z=resolution_z,
+        str(image_path)
     )
 
     print("\nDeepD3 stack shape:", stack.stack.shape)
