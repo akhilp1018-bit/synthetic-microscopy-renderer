@@ -2,13 +2,18 @@
 evaluate_deepd3_dataset.py
 --------------------------
 
-Evaluate pretrained DeepD3 predictions on the synthetic microscopy dataset.
+Evaluate DeepD3 predictions on the synthetic microscopy dataset.
+
+Supported models:
+    - Original pretrained DeepD3 32F
+    - Original pretrained DeepD3 32F 94 nm
+    - Synthetic-trained DeepD3 32F 94 nm
 
 VALIDATION:
-    - sweep probability thresholds
-    - select dendrite segmentation threshold
-    - select spine segmentation threshold
-    - select spine detection threshold
+    - sweep probability thresholds from 0.00 to 1.00
+    - select dendrite segmentation threshold using maximum IoU
+    - select spine segmentation threshold using maximum IoU
+    - select spine detection threshold using maximum F1
     - save selected thresholds
 
 TEST:
@@ -28,9 +33,62 @@ Metrics:
         center-to-center physical distance
         recall versus matching distance
 
-Usage:
-    python deepd3/evaluate_deepd3_dataset.py --split validation
-    python deepd3/evaluate_deepd3_dataset.py --split test
+Important evaluation settings:
+    Voxel spacing (Z,Y,X):
+        500 nm, 94 nm, 94 nm
+
+    Default spine matching distance:
+        1000 nm
+
+    Predicted spine centers:
+        Gaussian smoothing followed by 3D local-maximum detection.
+
+    Ground-truth spine centers:
+        Connected components of the binary spine mask followed by
+        center-of-mass calculation.
+
+Usage
+-----
+
+Validation threshold selection:
+
+    python deepd3/evaluate_deepd3_dataset.py \
+        --split validation
+
+Final test evaluation using frozen validation thresholds:
+
+    python deepd3/evaluate_deepd3_dataset.py \
+        --split test
+
+Process only a few instances for debugging:
+
+    python deepd3/evaluate_deepd3_dataset.py \
+        --split validation \
+        --max-instances 2
+
+Outputs
+-------
+
+outputs/synthetic_dataset_v1/deepd3_evaluation/
+├── validation/
+│   ├── selected_thresholds.json
+│   ├── threshold_summary.csv
+│   ├── per_instance_metrics.csv
+│   ├── final_metrics.csv
+│   ├── recall_vs_distance.csv
+│   └── matched_center_distances.csv
+│
+└── test/
+    ├── per_instance_metrics.csv
+    ├── final_metrics.csv
+    ├── recall_vs_distance.csv
+    └── matched_center_distances.csv
+
+Methodological rule
+-------------------
+Thresholds are selected ONLY on the validation split.
+
+The test split is never used to optimize thresholds.
 """
 
 from __future__ import annotations
@@ -64,9 +122,15 @@ DEFAULT_DATASET = (
     / "synthetic_dataset_v1"
 )
 
+# Prediction files to evaluate.
+#
+# Important:
+# The synthetic-trained model uses a separate prediction filename
+# so that the original pretrained 94 nm predictions are preserved.
 MODEL_FILES = {
     "32F": "32F.prediction",
     "32F_94nm": "32F_94nm.prediction",
+    "synthetic_32F_94nm": "synthetic_32F_94nm.prediction",
 }
 
 # Z, Y, X spacing in nm
@@ -76,22 +140,27 @@ DEFAULT_SPACING_NM_ZYX = (
     94.0,
 )
 
+# Local-maximum neighborhood for spine center detection
 PEAK_NEIGHBORHOOD_ZYX = (
     5,
     9,
     9,
 )
 
+# Gaussian smoothing applied before local-maximum detection
 PEAK_SMOOTH_SIGMA = 1.0
 
+# Default physical matching distance for GT/predicted spine centers
 DEFAULT_MATCH_DISTANCE_NM = 1000.0
 
-
+# Probability thresholds tested during validation
 THRESHOLDS = np.arange(
     0.0,
     1.0001,
     0.01,
 )
+
+# Matching distances used for recall-versus-distance analysis
 MATCH_DISTANCES_NM = np.arange(
     0.0,
     20000.0 + 1.0,
@@ -116,6 +185,7 @@ def parse_args():
         "--dataset",
         type=Path,
         default=DEFAULT_DATASET,
+        help="Root directory of the synthetic dataset.",
     )
 
     parser.add_argument(
@@ -125,18 +195,24 @@ def parse_args():
             "test",
         ),
         default="test",
+        help="Dataset split to evaluate.",
     )
 
     parser.add_argument(
         "--max-instances",
         type=int,
         default=None,
+        help="Optional maximum number of instances to evaluate.",
     )
 
     parser.add_argument(
         "--match-distance-nm",
         type=float,
         default=DEFAULT_MATCH_DISTANCE_NM,
+        help=(
+            "Maximum physical distance in nm for matching "
+            "a predicted spine center to a GT spine center."
+        ),
     )
 
     return parser.parse_args()
@@ -146,7 +222,10 @@ def parse_args():
 # File helpers
 # ==========================================================
 
-def require_file(path: Path, description: str):
+def require_file(
+    path: Path,
+    description: str,
+):
 
     if not path.is_file():
 
@@ -156,16 +235,26 @@ def require_file(path: Path, description: str):
         )
 
 
-def load_binary_mask(path: Path):
+def load_binary_mask(
+    path: Path,
+):
 
-    arr = tifffile.imread(path)
+    arr = tifffile.imread(
+        path
+    )
 
-    return np.asarray(arr) > 0
+    return np.asarray(
+        arr
+    ) > 0
 
 
-def load_prediction(path: Path):
+def load_prediction(
+    path: Path,
+):
 
-    data = fl.load(str(path))
+    data = fl.load(
+        str(path)
+    )
 
     if "dendrites" not in data:
         raise KeyError(
@@ -187,6 +276,8 @@ def load_prediction(path: Path):
         dtype=np.float32,
     )
 
+    # Defensive handling only.
+    # Inference should normally contain no NaNs/Infs.
     dendrites = np.nan_to_num(
         dendrites,
         nan=0.0,
@@ -201,7 +292,10 @@ def load_prediction(path: Path):
         neginf=0.0,
     )
 
-    return dendrites, spines
+    return (
+        dendrites,
+        spines,
+    )
 
 
 # ==========================================================
@@ -213,8 +307,13 @@ def compute_iou(
     prediction,
 ):
 
-    ground_truth = ground_truth.astype(bool)
-    prediction = prediction.astype(bool)
+    ground_truth = ground_truth.astype(
+        bool
+    )
+
+    prediction = prediction.astype(
+        bool
+    )
 
     intersection = np.logical_and(
         ground_truth,
@@ -239,8 +338,13 @@ def compute_dice(
     prediction,
 ):
 
-    ground_truth = ground_truth.astype(bool)
-    prediction = prediction.astype(bool)
+    ground_truth = ground_truth.astype(
+        bool
+    )
+
+    prediction = prediction.astype(
+        bool
+    )
 
     intersection = np.logical_and(
         ground_truth,
@@ -266,7 +370,9 @@ def compute_dice(
 # GT spine centers
 # ==========================================================
 
-def get_gt_spine_centers(spine_mask):
+def get_gt_spine_centers(
+    spine_mask,
+):
 
     labelled_mask, count = label(
         spine_mask
@@ -282,7 +388,10 @@ def get_gt_spine_centers(spine_mask):
     centers = center_of_mass(
         spine_mask,
         labelled_mask,
-        range(1, count + 1),
+        range(
+            1,
+            count + 1,
+        ),
     )
 
     return np.asarray(
@@ -394,10 +503,18 @@ def greedy_match(
     spacing_nm_zyx,
 ):
 
-    gt_count = len(gt_centers)
-    pred_count = len(predicted_centers)
+    gt_count = len(
+        gt_centers
+    )
 
-    if gt_count == 0 or pred_count == 0:
+    pred_count = len(
+        predicted_centers
+    )
+
+    if (
+        gt_count == 0
+        or pred_count == 0
+    ):
 
         return (
             [],
@@ -414,9 +531,13 @@ def greedy_match(
 
     candidates = []
 
-    for gt_index in range(gt_count):
+    for gt_index in range(
+        gt_count
+    ):
 
-        for pred_index in range(pred_count):
+        for pred_index in range(
+            pred_count
+        ):
 
             distance = float(
                 distances[
@@ -456,8 +577,13 @@ def greedy_match(
         if pred_index in used_pred:
             continue
 
-        used_gt.add(gt_index)
-        used_pred.add(pred_index)
+        used_gt.add(
+            gt_index
+        )
+
+        used_pred.add(
+            pred_index
+        )
 
         matches.append(
             (
@@ -467,7 +593,9 @@ def greedy_match(
             )
         )
 
-    tp = len(matches)
+    tp = len(
+        matches
+    )
 
     fp = (
         pred_count
@@ -494,13 +622,25 @@ def detection_metrics(
 ):
 
     if tp + fp > 0:
-        precision = tp / (tp + fp)
+
+        precision = (
+            tp
+            / (tp + fp)
+        )
+
     else:
+
         precision = 0.0
 
     if tp + fn > 0:
-        recall = tp / (tp + fn)
+
+        recall = (
+            tp
+            / (tp + fn)
+        )
+
     else:
+
         recall = 0.0
 
     if precision + recall > 0:
@@ -516,6 +656,7 @@ def detection_metrics(
         )
 
     else:
+
         f1 = 0.0
 
     return (
@@ -548,7 +689,10 @@ def save_csv(
         )
 
         writer.writeheader()
-        writer.writerows(rows)
+
+        writer.writerows(
+            rows
+        )
 
 
 # ==========================================================
@@ -614,9 +758,14 @@ def load_model_instances(
             prediction_path
         )
 
-        expected_shape = spine_gt.shape
+        expected_shape = (
+            spine_gt.shape
+        )
 
-        if dendrite_probability.shape != expected_shape:
+        if (
+            dendrite_probability.shape
+            != expected_shape
+        ):
 
             raise ValueError(
                 f"Shape mismatch: "
@@ -627,7 +776,10 @@ def load_model_instances(
                 f"{dendrite_probability.shape}"
             )
 
-        if spine_probability.shape != expected_shape:
+        if (
+            spine_probability.shape
+            != expected_shape
+        ):
 
             raise ValueError(
                 f"Shape mismatch: "
@@ -638,8 +790,10 @@ def load_model_instances(
                 f"{spine_probability.shape}"
             )
 
-        gt_centers = get_gt_spine_centers(
-            spine_gt
+        gt_centers = (
+            get_gt_spine_centers(
+                spine_gt
+            )
         )
 
         model_instance_data.append(
@@ -706,12 +860,16 @@ def threshold_sweep(
         for data in model_instance_data:
 
             dendrite_prediction = (
-                data["dendrite_probability"]
+                data[
+                    "dendrite_probability"
+                ]
                 >= threshold
             )
 
             spine_prediction = (
-                data["spine_probability"]
+                data[
+                    "spine_probability"
+                ]
                 >= threshold
             )
 
@@ -745,7 +903,9 @@ def threshold_sweep(
 
             predicted_centers = (
                 detect_spine_peaks(
-                    data["spine_probability"],
+                    data[
+                        "spine_probability"
+                    ],
                     threshold,
                 )
             )
@@ -756,7 +916,9 @@ def threshold_sweep(
                 fp,
                 fn,
             ) = greedy_match(
-                data["gt_centers"],
+                data[
+                    "gt_centers"
+                ],
                 predicted_centers,
                 match_distance_nm,
                 spacing_nm_zyx,
@@ -782,7 +944,9 @@ def threshold_sweep(
                     model_tag,
 
                 "threshold":
-                    float(threshold),
+                    float(
+                        threshold
+                    ),
 
                 "dendrite_iou":
                     float(
@@ -843,24 +1007,34 @@ def select_validation_thresholds(
     threshold_rows,
 ):
 
-    # Segmentation thresholds selected using IoU.
+    # Dendrite segmentation threshold:
+    # select threshold with maximum dendrite IoU.
     dendrite_best = max(
         threshold_rows,
         key=lambda row:
-            row["dendrite_iou"],
+            row[
+                "dendrite_iou"
+            ],
     )
 
+    # Spine segmentation threshold:
+    # select threshold with maximum spine IoU.
     spine_segmentation_best = max(
         threshold_rows,
         key=lambda row:
-            row["spine_iou"],
+            row[
+                "spine_iou"
+            ],
     )
 
-    # Object-detection threshold selected using F1.
+    # Spine detection threshold:
+    # select threshold with maximum F1.
     spine_detection_best = max(
         threshold_rows,
         key=lambda row:
-            row["spine_f1"],
+            row[
+                "spine_f1"
+            ],
     )
 
     return {
@@ -900,6 +1074,7 @@ def evaluate_fixed_thresholds(
 ):
 
     per_instance_rows = []
+
     matched_distance_rows = []
 
     dendrite_threshold = (
@@ -933,18 +1108,24 @@ def evaluate_fixed_thresholds(
     for data in model_instance_data:
 
         dendrite_prediction = (
-            data["dendrite_probability"]
+            data[
+                "dendrite_probability"
+            ]
             >= dendrite_threshold
         )
 
         spine_prediction = (
-            data["spine_probability"]
+            data[
+                "spine_probability"
+            ]
             >= spine_segmentation_threshold
         )
 
         predicted_centers = (
             detect_spine_peaks(
-                data["spine_probability"],
+                data[
+                    "spine_probability"
+                ],
                 spine_detection_threshold,
             )
         )
@@ -955,7 +1136,9 @@ def evaluate_fixed_thresholds(
             fp,
             fn,
         ) = greedy_match(
-            data["gt_centers"],
+            data[
+                "gt_centers"
+            ],
             predicted_centers,
             match_distance_nm,
             spacing_nm_zyx,
@@ -971,24 +1154,40 @@ def evaluate_fixed_thresholds(
             fn,
         )
 
-        dendrite_iou = compute_iou(
-            data["dendrite_gt"],
-            dendrite_prediction,
+        dendrite_iou = (
+            compute_iou(
+                data[
+                    "dendrite_gt"
+                ],
+                dendrite_prediction,
+            )
         )
 
-        dendrite_dice = compute_dice(
-            data["dendrite_gt"],
-            dendrite_prediction,
+        dendrite_dice = (
+            compute_dice(
+                data[
+                    "dendrite_gt"
+                ],
+                dendrite_prediction,
+            )
         )
 
-        spine_iou = compute_iou(
-            data["spine_gt"],
-            spine_prediction,
+        spine_iou = (
+            compute_iou(
+                data[
+                    "spine_gt"
+                ],
+                spine_prediction,
+            )
         )
 
-        spine_dice = compute_dice(
-            data["spine_gt"],
-            spine_prediction,
+        spine_dice = (
+            compute_dice(
+                data[
+                    "spine_gt"
+                ],
+                spine_prediction,
+            )
         )
 
         all_dendrite_iou.append(
@@ -1012,7 +1211,9 @@ def evaluate_fixed_thresholds(
         total_fn += fn
 
         matched_distances = [
-            float(match[2])
+            float(
+                match[2]
+            )
             for match in matches
         ]
 
@@ -1028,16 +1229,24 @@ def evaluate_fixed_thresholds(
                         model_tag,
 
                     "instance":
-                        data["instance"],
+                        data[
+                            "instance"
+                        ],
 
                     "gt_id":
-                        int(gt_index),
+                        int(
+                            gt_index
+                        ),
 
                     "pred_id":
-                        int(pred_index),
+                        int(
+                            pred_index
+                        ),
 
                     "distance_nm":
-                        float(distance_nm),
+                        float(
+                            distance_nm
+                        ),
                 }
             )
 
@@ -1066,7 +1275,9 @@ def evaluate_fixed_thresholds(
                     model_tag,
 
                 "instance":
-                    data["instance"],
+                    data[
+                        "instance"
+                    ],
 
                 "dendrite_threshold":
                     dendrite_threshold,
@@ -1079,7 +1290,9 @@ def evaluate_fixed_thresholds(
 
                 "gt_spines":
                     len(
-                        data["gt_centers"]
+                        data[
+                            "gt_centers"
+                        ]
                     ),
 
                 "predicted_spines":
@@ -1221,14 +1434,20 @@ def calculate_recall_vs_distance(
 
     for data in model_instance_data:
 
-        predicted_centers = detect_spine_peaks(
-            data["spine_probability"],
-            detection_threshold,
+        predicted_centers = (
+            detect_spine_peaks(
+                data[
+                    "spine_probability"
+                ],
+                detection_threshold,
+            )
         )
 
         instance_centers.append(
             (
-                data["gt_centers"],
+                data[
+                    "gt_centers"
+                ],
                 predicted_centers,
             )
         )
@@ -1264,11 +1483,14 @@ def calculate_recall_vs_distance(
         )
 
         if denominator > 0:
+
             recall = (
                 total_tp
                 / denominator
             )
+
         else:
+
             recall = 0.0
 
         rows.append(
@@ -1280,10 +1502,14 @@ def calculate_recall_vs_distance(
                     detection_threshold,
 
                 "matching_distance_nm":
-                    float(distance_nm),
+                    float(
+                        distance_nm
+                    ),
 
                 "recall":
-                    float(recall),
+                    float(
+                        recall
+                    ),
             }
         )
 
@@ -1370,9 +1596,11 @@ def main():
 
     print()
     print("=" * 70)
+
     print(
         "DeepD3 synthetic dataset evaluation"
     )
+
     print("=" * 70)
 
     print(
@@ -1397,6 +1625,11 @@ def main():
         f"{args.match_distance_nm:.0f} nm"
     )
 
+    print(
+        "Models    : "
+        f"{', '.join(MODEL_FILES.keys())}"
+    )
+
     print("=" * 70)
 
     # ------------------------------------------------------
@@ -1419,10 +1652,13 @@ def main():
         ) as file:
 
             selected_thresholds = (
-                json.load(file)
+                json.load(
+                    file
+                )
             )
 
         print()
+
         print(
             "Using frozen thresholds "
             "selected on validation."
@@ -1435,7 +1671,7 @@ def main():
     final_summary_rows = []
 
     # ------------------------------------------------------
-    # Models
+    # Evaluate models
     # ------------------------------------------------------
 
     for (
@@ -1444,6 +1680,7 @@ def main():
     ) in MODEL_FILES.items():
 
         print()
+
         print(
             f"Model: {model_tag}"
         )
@@ -1457,10 +1694,15 @@ def main():
         )
 
         # --------------------------------------------------
-        # Validation: sweep and select thresholds
+        # VALIDATION:
+        # sweep and select thresholds
         # --------------------------------------------------
 
         if args.split == "validation":
+
+            print(
+                "  Sweeping validation thresholds..."
+            )
 
             model_threshold_rows = (
                 threshold_sweep(
@@ -1486,12 +1728,16 @@ def main():
             ] = model_thresholds
 
         # --------------------------------------------------
-        # Test: use frozen validation thresholds
+        # TEST:
+        # use frozen validation thresholds
         # --------------------------------------------------
 
         else:
 
-            if model_tag not in selected_thresholds:
+            if (
+                model_tag
+                not in selected_thresholds
+            ):
 
                 raise KeyError(
                     f"{model_tag} missing from "
@@ -1582,8 +1828,15 @@ def main():
             f"{summary['spine_f1']:.4f}"
         )
 
+        print(
+            f"  TP / FP / FN : "
+            f"{summary['tp']} / "
+            f"{summary['fp']} / "
+            f"{summary['fn']}"
+        )
+
         # --------------------------------------------------
-        # Recall versus distance
+        # Recall versus matching distance
         # --------------------------------------------------
 
         distance_rows = (
@@ -1620,6 +1873,7 @@ def main():
             )
 
         print()
+
         print(
             "Saved validation thresholds:"
         )
@@ -1744,9 +1998,18 @@ def main():
         ],
     )
 
+    # ------------------------------------------------------
+    # Final output summary
+    # ------------------------------------------------------
+
     print()
+
     print("=" * 70)
-    print("Evaluation complete")
+
+    print(
+        "Evaluation complete"
+    )
+
     print("=" * 70)
 
     print(
@@ -1754,13 +2017,19 @@ def main():
     )
 
     print()
+
     print(
         "per_instance_metrics.csv"
     )
 
     if args.split == "validation":
+
         print(
             "threshold_summary.csv"
+        )
+
+        print(
+            "selected_thresholds.json"
         )
 
     print(

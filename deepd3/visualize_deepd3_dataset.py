@@ -4,6 +4,11 @@ Visualize DeepD3 Dataset
 
 Create qualitative DeepD3 visualizations for synthetic dataset instances.
 
+Supported models:
+    - Original pretrained DeepD3 32F
+    - Original pretrained DeepD3 32F 94 nm
+    - Synthetic-trained DeepD3 32F 94 nm
+
 For each model, two figures are generated:
 
 SPINE DETECTION
@@ -30,31 +35,62 @@ and does not tune thresholds on the test set.
 Usage
 -----
 
-Visualize one test instance:
+Visualize one test instance for all models:
 
     python deepd3/visualize_deepd3_dataset.py \
         --split test \
-        --instance instance_000001
+        --instance instance_000001 \
+        --model all
 
-Visualize ALL test instances:
+Visualize all test instances for all models:
 
     python deepd3/visualize_deepd3_dataset.py \
         --split test \
-        --instance all
+        --instance all \
+        --model all
 
-Only 32F:
+Visualize only original 32F:
 
     python deepd3/visualize_deepd3_dataset.py \
         --split test \
         --instance all \
         --model 32F
 
-Only 32F_94nm:
+Visualize only original 32F 94 nm:
 
     python deepd3/visualize_deepd3_dataset.py \
         --split test \
         --instance all \
         --model 32F_94nm
+
+Visualize only synthetic-trained model:
+
+    python deepd3/visualize_deepd3_dataset.py \
+        --split test \
+        --instance all \
+        --model synthetic_32F_94nm
+
+Visualize one validation instance using the synthetic-trained model:
+
+    python deepd3/visualize_deepd3_dataset.py \
+        --split validation \
+        --instance instance_000001 \
+        --model synthetic_32F_94nm
+
+
+Outputs
+-------
+
+For each instance:
+
+instance_XXXXXX/
+└── deepd3_visualization/
+    ├── matching_32F.png
+    ├── dendrite_32F.png
+    ├── matching_32F_94nm.png
+    ├── dendrite_32F_94nm.png
+    ├── matching_synthetic_32F_94nm.png
+    └── dendrite_synthetic_32F_94nm.png
 """
 
 from __future__ import annotations
@@ -108,6 +144,7 @@ SMOOTH_SIGMA = 1.0
 MODELS = (
     "32F",
     "32F_94nm",
+    "synthetic_32F_94nm",
 )
 
 
@@ -160,12 +197,14 @@ def parse_args():
         choices=(
             "32F",
             "32F_94nm",
-            "both",
+            "synthetic_32F_94nm",
+            "all",
         ),
-        default="both",
+        default="all",
         help=(
             "DeepD3 model to visualize. "
-            "Default: both."
+            "Use 'all' to visualize all supported models. "
+            "Default: all."
         ),
     )
 
@@ -189,7 +228,9 @@ def require_file(
         )
 
 
-def normalize01(arr):
+def normalize01(
+    arr,
+):
 
     arr = np.asarray(
         arr,
@@ -203,8 +244,13 @@ def normalize01(arr):
         neginf=0.0,
     )
 
-    vmin = float(arr.min())
-    vmax = float(arr.max())
+    vmin = float(
+        arr.min()
+    )
+
+    vmax = float(
+        arr.max()
+    )
 
     if vmax <= vmin:
 
@@ -361,6 +407,7 @@ def load_thresholds(
     with open(
         threshold_path,
         "r",
+        encoding="utf-8",
     ) as f:
 
         data = json.load(
@@ -483,8 +530,13 @@ def calculate_distance_matrix_nm(
     pred_centers,
 ):
 
-    n_gt = len(gt_centers)
-    n_pred = len(pred_centers)
+    n_gt = len(
+        gt_centers
+    )
+
+    n_pred = len(
+        pred_centers
+    )
 
     if (
         n_gt == 0
@@ -561,14 +613,17 @@ def match_centers(
 
                 candidates.append(
                     (
-                        float(distance),
+                        float(
+                            distance
+                        ),
                         gt_index,
                         pred_index,
                     )
                 )
 
     candidates.sort(
-        key=lambda item: item[0]
+        key=lambda item:
+            item[0]
     )
 
     used_gt = set()
@@ -617,27 +672,47 @@ def calculate_detection_metrics(
     matches,
 ):
 
-    tp = len(matches)
+    tp = len(
+        matches
+    )
 
     fp = (
-        len(pred_centers)
+        len(
+            pred_centers
+        )
         - tp
     )
 
     fn = (
-        len(gt_centers)
+        len(
+            gt_centers
+        )
         - tp
     )
 
     precision = (
-        tp / (tp + fp)
-        if (tp + fp) > 0
+        tp
+        / (
+            tp
+            + fp
+        )
+        if (
+            tp
+            + fp
+        ) > 0
         else 0.0
     )
 
     recall = (
-        tp / (tp + fn)
-        if (tp + fn) > 0
+        tp
+        / (
+            tp
+            + fn
+        )
+        if (
+            tp
+            + fn
+        ) > 0
         else 0.0
     )
 
@@ -676,12 +751,16 @@ def calculate_segmentation_metrics(
 ):
 
     gt = (
-        np.asarray(gt_mask)
+        np.asarray(
+            gt_mask
+        )
         > 0
     )
 
     pred = (
-        np.asarray(pred_mask)
+        np.asarray(
+            pred_mask
+        )
         > 0
     )
 
@@ -699,7 +778,8 @@ def calculate_segmentation_metrics(
     pred_sum = pred.sum()
 
     iou = (
-        intersection / union
+        intersection
+        / union
         if union > 0
         else 1.0
     )
@@ -718,8 +798,14 @@ def calculate_segmentation_metrics(
     )
 
     return {
-        "iou": float(iou),
-        "dice": float(dice),
+        "iou":
+            float(
+                iou
+            ),
+        "dice":
+            float(
+                dice
+            ),
     }
 
 
@@ -781,7 +867,9 @@ def create_matching_figure(
     missed_gt = [
         index
         for index in range(
-            len(gt_centers)
+            len(
+                gt_centers
+            )
         )
         if index not in matched_gt
     ]
@@ -789,7 +877,9 @@ def create_matching_figure(
     false_positive_pred = [
         index
         for index in range(
-            len(pred_centers)
+            len(
+                pred_centers
+            )
         )
         if index not in matched_pred
     ]
@@ -803,7 +893,6 @@ def create_matching_figure(
         ),
     )
 
-    # Panel 1
     axes[0].imshow(
         noisy_mip,
         cmap="gray",
@@ -816,7 +905,6 @@ def create_matching_figure(
         "max projection"
     )
 
-    # Panel 2
     axes[1].imshow(
         spine_gt_mip,
         cmap="gray",
@@ -829,7 +917,6 @@ def create_matching_figure(
         "max projection"
     )
 
-    # Panel 3
     axes[2].imshow(
         spine_probability_mip,
         cmap="hot",
@@ -842,7 +929,6 @@ def create_matching_figure(
         "spine probability"
     )
 
-    # Panel 4
     axes[3].imshow(
         noisy_mip,
         cmap="gray",
@@ -850,7 +936,9 @@ def create_matching_figure(
         vmax=1,
     )
 
-    if len(gt_centers) > 0:
+    if len(
+        gt_centers
+    ) > 0:
 
         axes[3].scatter(
             gt_centers[:, 2],
@@ -1024,10 +1112,6 @@ def create_dendrite_figure(
     output_path,
 ):
 
-    # ------------------------------------------------------
-    # XY maximum projections
-    # ------------------------------------------------------
-
     noisy_mip = normalize01(
         noisy.max(
             axis=0
@@ -1052,10 +1136,6 @@ def create_dendrite_figure(
         )
     )
 
-    # ------------------------------------------------------
-    # TP / FP / FN on the displayed XY projection
-    # ------------------------------------------------------
-
     gt_2d = (
         dendrite_gt_mip
         > 0
@@ -1072,16 +1152,19 @@ def create_dendrite_figure(
     )
 
     fp_2d = np.logical_and(
-        np.logical_not(gt_2d),
+        np.logical_not(
+            gt_2d
+        ),
         pred_2d,
     )
 
     fn_2d = np.logical_and(
         gt_2d,
-        np.logical_not(pred_2d),
+        np.logical_not(
+            pred_2d
+        ),
     )
 
-    # RGB error image
     error_overlay = np.zeros(
         (
             gt_2d.shape[0],
@@ -1118,10 +1201,6 @@ def create_dendrite_figure(
         1.0,
     ]
 
-    # ------------------------------------------------------
-    # Figure
-    # ------------------------------------------------------
-
     fig, axes = plt.subplots(
         1,
         4,
@@ -1131,7 +1210,6 @@ def create_dendrite_figure(
         ),
     )
 
-    # Panel 1
     axes[0].imshow(
         noisy_mip,
         cmap="gray",
@@ -1144,7 +1222,6 @@ def create_dendrite_figure(
         "max projection"
     )
 
-    # Panel 2
     axes[1].imshow(
         dendrite_gt_mip,
         cmap="gray",
@@ -1157,7 +1234,6 @@ def create_dendrite_figure(
         "max projection"
     )
 
-    # Panel 3
     axes[2].imshow(
         dendrite_probability_mip,
         cmap="hot",
@@ -1170,7 +1246,6 @@ def create_dendrite_figure(
         "dendrite probability"
     )
 
-    # Panel 4
     axes[3].imshow(
         error_overlay
     )
@@ -1243,10 +1318,6 @@ def process_instance(
             f"  {instance_dir}"
         )
 
-    # ------------------------------------------------------
-    # Input files
-    # ------------------------------------------------------
-
     noisy_path = (
         instance_dir
         / "noisy.tif"
@@ -1276,10 +1347,6 @@ def process_instance(
         dendrite_gt_path,
         "GT dendrite mask",
     )
-
-    # ------------------------------------------------------
-    # Load image + GT
-    # ------------------------------------------------------
 
     noisy = tifffile.imread(
         noisy_path
@@ -1311,17 +1378,11 @@ def process_instance(
             f"Dendrite GT : {dendrite_gt.shape}"
         )
 
-    # ------------------------------------------------------
-    # Extract GT spine centers
-    # ------------------------------------------------------
-
-    gt_centers = extract_gt_centers(
-        spine_gt
+    gt_centers = (
+        extract_gt_centers(
+            spine_gt
+        )
     )
-
-    # ------------------------------------------------------
-    # Output directory
-    # ------------------------------------------------------
 
     output_dir = (
         instance_dir
@@ -1332,10 +1393,6 @@ def process_instance(
         parents=True,
         exist_ok=True,
     )
-
-    # ------------------------------------------------------
-    # Console header
-    # ------------------------------------------------------
 
     print()
 
@@ -1368,11 +1425,13 @@ def process_instance(
     )
 
     print(
-        f"Spacing    : {tuple(SPACING_ZYX_NM)} nm (Z,Y,X)"
+        f"Spacing    : "
+        f"{tuple(SPACING_ZYX_NM)} nm (Z,Y,X)"
     )
 
     print(
-        f"Match      : {MATCH_DISTANCE_NM:.0f} nm"
+        f"Match      : "
+        f"{MATCH_DISTANCE_NM:.0f} nm"
     )
 
     print(
@@ -1382,10 +1441,6 @@ def process_instance(
     print(
         "=" * 70
     )
-
-    # ------------------------------------------------------
-    # Process models
-    # ------------------------------------------------------
 
     for model in selected_models:
 
@@ -1408,8 +1463,10 @@ def process_instance(
         )
 
         if (
-            spine_probability.shape != noisy.shape
-            or dendrite_probability.shape != noisy.shape
+            spine_probability.shape
+            != noisy.shape
+            or dendrite_probability.shape
+            != noisy.shape
         ):
 
             raise ValueError(
@@ -1438,9 +1495,11 @@ def process_instance(
             )
         )
 
-        matches = match_centers(
-            gt_centers,
-            pred_centers,
+        matches = (
+            match_centers(
+                gt_centers,
+                pred_centers,
+            )
         )
 
         detection_metrics = (
@@ -1513,10 +1572,6 @@ def process_instance(
             output_path=dendrite_output_path,
         )
 
-        # --------------------------------------------------
-        # Terminal output
-        # --------------------------------------------------
-
         print()
 
         print(
@@ -1528,15 +1583,18 @@ def process_instance(
         )
 
         print(
-            f"Threshold  : {spine_threshold:.2f}"
+            f"Threshold  : "
+            f"{spine_threshold:.2f}"
         )
 
         print(
-            f"GT centers : {len(gt_centers)}"
+            f"GT centers : "
+            f"{len(gt_centers)}"
         )
 
         print(
-            f"Predicted  : {len(pred_centers)}"
+            f"Predicted  : "
+            f"{len(pred_centers)}"
         )
 
         print(
@@ -1562,7 +1620,8 @@ def process_instance(
         )
 
         print(
-            f"Saved      : {spine_output_path}"
+            f"Saved      : "
+            f"{spine_output_path}"
         )
 
         print()
@@ -1572,7 +1631,8 @@ def process_instance(
         )
 
         print(
-            f"Threshold  : {dendrite_threshold:.2f}"
+            f"Threshold  : "
+            f"{dendrite_threshold:.2f}"
         )
 
         print(
@@ -1586,7 +1646,8 @@ def process_instance(
         )
 
         print(
-            f"Saved      : {dendrite_output_path}"
+            f"Saved      : "
+            f"{dendrite_output_path}"
         )
 
 
@@ -1602,10 +1663,6 @@ def main():
         args.dataset.resolve()
     )
 
-    # ------------------------------------------------------
-    # Load frozen validation thresholds once
-    # ------------------------------------------------------
-
     (
         thresholds,
         threshold_path,
@@ -1617,11 +1674,10 @@ def main():
     # Select model(s)
     # ------------------------------------------------------
 
-    if args.model == "both":
+    if args.model == "all":
 
         selected_models = (
-            "32F",
-            "32F_94nm",
+            MODELS
         )
 
     else:
@@ -1646,7 +1702,10 @@ def main():
             f"  {split_dir}"
         )
 
-    if args.instance.lower() == "all":
+    if (
+        args.instance.lower()
+        == "all"
+    ):
 
         instance_dirs = sorted(
             path
@@ -1683,15 +1742,18 @@ def main():
         )
 
         print(
-            f"Split     : {args.split}"
+            f"Split     : "
+            f"{args.split}"
         )
 
         print(
-            f"Instances : {len(instance_names)}"
+            f"Instances : "
+            f"{len(instance_names)}"
         )
 
         print(
-            f"Models    : {', '.join(selected_models)}"
+            f"Models    : "
+            f"{', '.join(selected_models)}"
         )
 
         print(
@@ -1712,7 +1774,10 @@ def main():
         instance_names
     )
 
-    for index, instance_name in enumerate(
+    for (
+        index,
+        instance_name,
+    ) in enumerate(
         instance_names,
         start=1,
     ):
@@ -1744,10 +1809,6 @@ def main():
             threshold_path=threshold_path,
         )
 
-    # ------------------------------------------------------
-    # Final summary
-    # ------------------------------------------------------
-
     print()
 
     print(
@@ -1759,12 +1820,13 @@ def main():
     )
 
     print(
-        f"Processed {total_instances} "
-        f"instance(s)."
+        f"Processed "
+        f"{total_instances} instance(s)."
     )
 
     print(
-        f"Split: {args.split}"
+        f"Split: "
+        f"{args.split}"
     )
 
     print(
