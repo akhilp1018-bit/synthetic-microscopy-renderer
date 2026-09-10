@@ -1,3 +1,69 @@
+"""
+evaluate_deepd3_benchmark.py
+----------------------------
+
+Evaluate real-trained and synthetic-trained DeepD3 models on the
+real DeepD3 benchmark.
+
+The script evaluates:
+    - dendrite segmentation: IoU and Dice
+    - spine segmentation: IoU and Dice
+    - spine-center detection: Precision, Recall and F1
+
+Segmentation is evaluated against expert annotations U, V and W.
+Spine detection is evaluated against the multi-rater spine-center
+annotations.
+
+Frozen thresholds selected on the synthetic validation dataset are
+used for both models. No thresholds are optimized on the real
+benchmark.
+
+
+Usage
+-----
+
+Run from the repository root:
+
+    python deepd3/evaluate_deepd3_benchmark.py
+
+
+Input
+-----
+
+benchmarks/deepd3/
+├── DeepD3_Benchmark.tif
+├── Annotations_and_Clusters.csv
+├── Segmentation_U.mask
+├── Segmentation_V.mask
+├── Segmentation_W.mask
+├── Dendrite_U.swc
+├── Dendrite_V.swc
+├── Dendrite_W.swc
+└── predictions/
+    ├── real_32F_94nm.prediction
+    └── synthetic_32F_94nm.prediction
+
+
+Output
+------
+
+benchmarks/deepd3/evaluation/
+├── segmentation_results.csv
+└── spine_detection_results.csv
+
+
+Important
+---------
+
+Segmentation thresholds and spine-detection thresholds are frozen
+from synthetic validation and are not tuned on the real benchmark.
+
+Spine segmentation is evaluated against U, V and W separately and
+also against their intersection and union.
+
+Spine-center detection is evaluated for annotation agreement levels
+from >=1 to >=7 raters using one-to-one matching within 1000 nm.
+"""
 from pathlib import Path
 import argparse
 

@@ -1,3 +1,70 @@
+
+"""
+run_deepd3_benchmark.py
+-----------------------
+
+Run DeepD3 whole-image inference on the official DeepD3 benchmark.
+
+The script supports:
+    - the original pretrained DeepD3 32F 94 nm model
+    - the synthetic-trained DeepD3 32F 94 nm model
+
+Raw probability predictions are saved without cleaning,
+clipping, or thresholding.
+
+
+Usage
+-----
+
+Run both models:
+
+    python deepd3/run_deepd3_benchmark.py \
+        --model both
+
+
+Run only the original pretrained model:
+
+    python deepd3/run_deepd3_benchmark.py \
+        --model real
+
+
+Run only the synthetic-trained model:
+
+    python deepd3/run_deepd3_benchmark.py \
+        --model synthetic
+
+
+Input
+-----
+
+benchmarks/deepd3/
+└── DeepD3_Benchmark.tif
+
+deepd3/models/
+├── DeepD3_32F_94nm.h5
+└── synthetic_94nm/
+    └── synthetic_32F_94nm_best.h5
+
+
+Output
+------
+
+benchmarks/deepd3/predictions/
+├── real_32F_94nm.prediction
+└── synthetic_32F_94nm.prediction
+
+
+Important
+---------
+
+Inference uses DeepD3 predictWholeImage().
+
+Predictions are saved as raw probability maps with:
+    dendrites
+    spines
+
+No cleaning, clipping, or thresholding is applied.
+"""
 from pathlib import Path
 import argparse
 import numpy as np

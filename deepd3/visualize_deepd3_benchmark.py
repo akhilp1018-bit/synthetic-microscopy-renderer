@@ -1,3 +1,53 @@
+"""
+visualize_deepd3_benchmark.py
+-----------------------------
+
+Visualize real-trained and synthetic-trained DeepD3 predictions
+on a representative region of the real DeepD3 benchmark.
+
+The figure compares the benchmark image, expert annotation
+intersection (U ∩ V ∩ W), real-trained DeepD3 prediction, and
+synthetic-trained DeepD3 prediction for spines and dendrites.
+
+
+Usage
+-----
+
+Run from the repository root:
+
+    python deepd3/visualize_deepd3_benchmark.py
+
+
+Input
+-----
+
+benchmarks/deepd3/
+├── DeepD3_Benchmark.tif
+├── Segmentation_U.mask
+├── Segmentation_V.mask
+├── Segmentation_W.mask
+├── Dendrite_U.swc
+├── Dendrite_V.swc
+├── Dendrite_W.swc
+└── predictions/
+    ├── real_32F_94nm.prediction
+    └── synthetic_32F_94nm.prediction
+
+
+Output
+------
+
+benchmarks/deepd3/qualitative/
+└── deepd3_benchmark_comparison.png
+
+
+Important
+---------
+
+The same frozen segmentation thresholds used for quantitative
+benchmark evaluation are used for visualization.
+"""
+
 from pathlib import Path
 
 import numpy as np
@@ -377,7 +427,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Load real-data GT intersections
+    # Load expert GT intersections
     # -----------------------------------------------------
 
     spine_gt = load_spine_intersection()
@@ -485,7 +535,7 @@ def main():
     )
 
     axes[0, 1].set_title(
-        "Real-data GT\n(U ∩ V ∩ W)"
+        "Expert intersection\n(U ∩ V ∩ W)"
     )
 
     axes[0, 2].imshow(
@@ -525,7 +575,7 @@ def main():
     )
 
     axes[1, 1].set_title(
-        "Real-data GT\n(U ∩ V ∩ W)"
+        "Expert intersection\n(U ∩ V ∩ W)"
     )
 
     axes[1, 2].imshow(
@@ -574,7 +624,7 @@ def main():
 
     output_path = (
         OUTPUT_DIR
-        / "benchmark_final_comparison.png"
+        / "deepd3_benchmark_comparison.png"
     )
 
     fig.savefig(

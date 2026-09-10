@@ -1,3 +1,75 @@
+"""
+train_deepd3.py
+---------------
+
+Prepare the synthetic microscopy dataset for DeepD3 training,
+check the generated .d3set files, and train a DeepD3 model.
+
+
+Usage
+-----
+
+Run all commands from the repository root.
+
+
+1. Prepare training and validation data
+---------------------------------------
+
+    python deepd3/train_deepd3.py prepare \
+        --dataset outputs/synthetic_dataset_v1
+
+
+2. Check the generated datasets
+-------------------------------
+
+    python deepd3/train_deepd3.py check \
+        --dataset outputs/synthetic_dataset_v1
+
+
+3. Train DeepD3
+---------------
+
+    python deepd3/train_deepd3.py train \
+        --dataset outputs/synthetic_dataset_v1 \
+        --epochs 30 \
+        --samples-per-epoch 50000 \
+        --validation-samples 1280 \
+        --batch-size 32 \
+        --output-dir deepd3/models/synthetic_94nm
+
+
+Input
+-----
+
+Each training/validation instance contains:
+
+    noisy.tif
+    dendrite_mask.tif
+    spine_mask.tif
+
+
+Generated training files
+------------------------
+
+outputs/synthetic_dataset_v1/deepd3_training/
+├── synthetic_train.d3set
+└── synthetic_validation.d3set
+
+
+Output
+------
+
+deepd3/models/synthetic_94nm/
+├── synthetic_32F_94nm_best.h5
+└── synthetic_32F_94nm_training.csv
+
+
+Important
+---------
+
+Training uses the train split and model selection uses the
+validation split. The test split is not used during training.
+"""
 from __future__ import annotations
 
 import argparse
