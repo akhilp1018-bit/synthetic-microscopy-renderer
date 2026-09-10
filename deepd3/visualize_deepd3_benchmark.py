@@ -5,6 +5,12 @@ import tifffile
 import flammkuchen as fl
 import matplotlib.pyplot as plt
 
+from deepd3.core.dendrite import (
+    DendriteSWC,
+    xyzr,
+    line_w_sphere,
+)
+
 
 # =========================================================
 # Paths
@@ -36,19 +42,19 @@ OUTPUT_DIR = (
 
 
 # =========================================================
-# Frozen thresholds
+# Frozen segmentation thresholds
 # =========================================================
 
+REAL_DENDRITE_THRESHOLD = 0.01
 REAL_SPINE_THRESHOLD = 0.25
+
+SYNTH_DENDRITE_THRESHOLD = 0.01
 SYNTH_SPINE_THRESHOLD = 0.54
 
 
 # =========================================================
-# Final selected benchmark region
-# =========================================================
-#
-# This is the previous Crop 02.
-# We do not need to call it "Crop 02" in the thesis.
+# Selected benchmark region
+# Previous crop 02
 # =========================================================
 
 Z_START = 30
@@ -67,7 +73,7 @@ X1 = 900
 
 def load_prediction(path):
 
-    print(f"Loading prediction: {path}")
+    print(f"\nLoading prediction: {path}")
 
     data = fl.load(path)
 
@@ -77,14 +83,18 @@ def load_prediction(path):
             data["prediction"]
         )
 
-        spine = (
-            prediction[..., 1]
-        )
+        dendrite = prediction[..., 0]
+        spine = prediction[..., 1]
 
     elif (
         isinstance(data, dict)
+        and "dendrites" in data
         and "spines" in data
     ):
+
+        dendrite = np.asarray(
+            data["dendrites"]
+        )
 
         spine = np.asarray(
             data["spines"]
@@ -92,39 +102,28 @@ def load_prediction(path):
 
     else:
 
-        prediction = np.asarray(
-            data
-        )
+        prediction = np.asarray(data)
 
         if (
             prediction.ndim != 4
             or prediction.shape[-1] < 2
         ):
+
             raise RuntimeError(
                 f"Unknown prediction format: {path}"
             )
 
-        spine = (
-            prediction[..., 1]
-        )
+        dendrite = prediction[..., 0]
+        spine = prediction[..., 1]
 
-    print(
-        "Spine shape:",
-        spine.shape,
-    )
+    print("Dendrite shape:", dendrite.shape)
+    print("Spine shape   :", spine.shape)
 
-    print(
-        "Spine range:",
-        float(spine.min()),
-        "->",
-        float(spine.max()),
-    )
-
-    return spine
+    return dendrite, spine
 
 
 # =========================================================
-# Spine annotation loading
+# Spine GT
 # =========================================================
 
 def load_spine_mask(path):
@@ -135,13 +134,8 @@ def load_spine_mask(path):
         data["mask"]
     )
 
-    # Stored benchmark format:
-    #
-    # Z, X, Y
-    #
-    # Convert to:
-    #
-    # Z, Y, X
+    # Stored as Z,X,Y
+    # Convert to Z,Y,X
 
     mask = mask.transpose(
         0,
@@ -149,26 +143,127 @@ def load_spine_mask(path):
         1,
     )
 
-    return (
-        mask > 0
-    )
+    return mask > 0
 
 
 def load_spine_intersection():
 
     U = load_spine_mask(
-        BENCHMARK_DIR
-        / "Segmentation_U.mask"
+        BENCHMARK_DIR / "Segmentation_U.mask"
     )
 
     V = load_spine_mask(
-        BENCHMARK_DIR
-        / "Segmentation_V.mask"
+        BENCHMARK_DIR / "Segmentation_V.mask"
     )
 
     W = load_spine_mask(
-        BENCHMARK_DIR
-        / "Segmentation_W.mask"
+        BENCHMARK_DIR / "Segmentation_W.mask"
+    )
+
+    intersection = U & V & W
+
+    print(
+        "\nSpine GT intersection voxels:",
+        int(intersection.sum()),
+    )
+
+    return intersection
+
+
+# =========================================================
+# Dendrite GT rasterization
+# =========================================================
+
+def rasterize_dendrite_swc(
+    swc_path,
+    reference_tif,
+    spacing=(1, 1, 1),
+):
+
+    print(f"\nRasterizing: {swc_path}")
+
+    converter = DendriteSWC(
+        spacing=list(spacing)
+    )
+
+    converter.open(
+        str(swc_path),
+        str(reference_tif),
+    )
+
+    converter.stack = np.zeros(
+        converter.ref.shape,
+        dtype=np.uint8,
+    )
+
+    swc = converter.swc
+
+    node_ids = [
+        int(x)
+        for x in swc.index
+    ]
+
+    node_id_set = set(node_ids)
+
+    for node_id in node_ids:
+
+        row = swc.loc[node_id]
+
+        parent_id = int(
+            row.parent
+        )
+
+        if parent_id <= 0:
+            continue
+
+        if parent_id not in node_id_set:
+            continue
+
+        p0, r0 = xyzr(
+            swc,
+            parent_id,
+        )
+
+        p1, r1 = xyzr(
+            swc,
+            node_id,
+        )
+
+        try:
+
+            line_w_sphere(
+                converter.stack,
+                p0,
+                p1,
+                r0,
+                r1,
+                255,
+                converter.spacing,
+            )
+
+        except Exception:
+            pass
+
+    return (
+        converter.stack > 0
+    )
+
+
+def load_dendrite_intersection():
+
+    U = rasterize_dendrite_swc(
+        BENCHMARK_DIR / "Dendrite_U.swc",
+        IMAGE_PATH,
+    )
+
+    V = rasterize_dendrite_swc(
+        BENCHMARK_DIR / "Dendrite_V.swc",
+        IMAGE_PATH,
+    )
+
+    W = rasterize_dendrite_swc(
+        BENCHMARK_DIR / "Dendrite_W.swc",
+        IMAGE_PATH,
     )
 
     intersection = (
@@ -178,7 +273,7 @@ def load_spine_intersection():
     )
 
     print(
-        "Intersection voxels:",
+        "\nDendrite GT intersection voxels:",
         int(intersection.sum()),
     )
 
@@ -224,6 +319,7 @@ def normalize_image(image):
     )
 
     if hi <= lo:
+
         return np.zeros_like(
             image,
             dtype=np.float32,
@@ -254,7 +350,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Load real benchmark image
+    # Load benchmark
     # -----------------------------------------------------
 
     print("Loading benchmark image...")
@@ -269,24 +365,24 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Load expert intersection
+    # Load predictions
     # -----------------------------------------------------
 
-    spine_intersection = (
-        load_spine_intersection()
-    )
-
-    # -----------------------------------------------------
-    # Load model probabilities
-    # -----------------------------------------------------
-
-    real_spine_prob = load_prediction(
+    real_dend_prob, real_spine_prob = load_prediction(
         REAL_PRED_PATH
     )
 
-    synth_spine_prob = load_prediction(
+    synth_dend_prob, synth_spine_prob = load_prediction(
         SYNTH_PRED_PATH
     )
+
+    # -----------------------------------------------------
+    # Load real-data GT intersections
+    # -----------------------------------------------------
+
+    spine_gt = load_spine_intersection()
+
+    dendrite_gt = load_dendrite_intersection()
 
     # -----------------------------------------------------
     # Threshold predictions
@@ -302,108 +398,183 @@ def main():
         >= SYNTH_SPINE_THRESHOLD
     )
 
-    # -----------------------------------------------------
-    # Maximum-intensity projections
-    # -----------------------------------------------------
-
-    benchmark_projection = max_project(
-        benchmark
+    real_dend_mask = (
+        real_dend_prob
+        >= REAL_DENDRITE_THRESHOLD
     )
 
-    gt_projection = max_project(
-        spine_intersection
-    )
-
-    real_projection = max_project(
-        real_spine_mask
-    )
-
-    synth_projection = max_project(
-        synth_spine_mask
+    synth_dend_mask = (
+        synth_dend_prob
+        >= SYNTH_DENDRITE_THRESHOLD
     )
 
     # -----------------------------------------------------
-    # Crop selected region
+    # Projection + crop
     # -----------------------------------------------------
 
     benchmark_crop = crop(
         normalize_image(
-            benchmark_projection
+            max_project(
+                benchmark
+            )
         )
     )
 
-    gt_crop = crop(
-        gt_projection
+    spine_gt_crop = crop(
+        max_project(
+            spine_gt
+        )
     )
 
-    real_crop = crop(
-        real_projection
+    real_spine_crop = crop(
+        max_project(
+            real_spine_mask
+        )
     )
 
-    synth_crop = crop(
-        synth_projection
+    synth_spine_crop = crop(
+        max_project(
+            synth_spine_mask
+        )
     )
 
-    # -----------------------------------------------------
+    dendrite_gt_crop = crop(
+        max_project(
+            dendrite_gt
+        )
+    )
+
+    real_dend_crop = crop(
+        max_project(
+            real_dend_mask
+        )
+    )
+
+    synth_dend_crop = crop(
+        max_project(
+            synth_dend_mask
+        )
+    )
+
+    # =====================================================
     # Plot
-    # -----------------------------------------------------
+    # =====================================================
 
     fig, axes = plt.subplots(
-        1,
+        2,
         4,
-        figsize=(16, 4),
+        figsize=(16, 8),
     )
 
-    axes[0].imshow(
+    # -----------------------------------------------------
+    # Spine row
+    # -----------------------------------------------------
+
+    axes[0, 0].imshow(
         benchmark_crop,
         cmap="gray",
     )
 
-    axes[0].set_title(
+    axes[0, 0].set_title(
         "Real benchmark"
     )
 
-    axes[1].imshow(
-        gt_crop,
+    axes[0, 1].imshow(
+        spine_gt_crop,
         cmap="gray",
     )
 
-    axes[1].set_title(
-        "Expert intersection\n(U ∩ V ∩ W)"
+    axes[0, 1].set_title(
+        "Real-data GT\n(U ∩ V ∩ W)"
     )
 
-    axes[2].imshow(
-        real_crop,
+    axes[0, 2].imshow(
+        real_spine_crop,
         cmap="gray",
     )
 
-    axes[2].set_title(
+    axes[0, 2].set_title(
         "Real-trained\nDeepD3"
     )
 
-    axes[3].imshow(
-        synth_crop,
+    axes[0, 3].imshow(
+        synth_spine_crop,
         cmap="gray",
     )
 
-    axes[3].set_title(
+    axes[0, 3].set_title(
         "Synthetic-trained\nDeepD3"
     )
 
-    for ax in axes:
-        ax.axis(
-            "off"
-        )
+    # -----------------------------------------------------
+    # Dendrite row
+    # -----------------------------------------------------
+
+    axes[1, 0].imshow(
+        benchmark_crop,
+        cmap="gray",
+    )
+
+    axes[1, 0].set_title(
+        "Real benchmark"
+    )
+
+    axes[1, 1].imshow(
+        dendrite_gt_crop,
+        cmap="gray",
+    )
+
+    axes[1, 1].set_title(
+        "Real-data GT\n(U ∩ V ∩ W)"
+    )
+
+    axes[1, 2].imshow(
+        real_dend_crop,
+        cmap="gray",
+    )
+
+    axes[1, 2].set_title(
+        "Real-trained\nDeepD3"
+    )
+
+    axes[1, 3].imshow(
+        synth_dend_crop,
+        cmap="gray",
+    )
+
+    axes[1, 3].set_title(
+        "Synthetic-trained\nDeepD3"
+    )
+
+    # -----------------------------------------------------
+    # Row labels
+    # -----------------------------------------------------
+
+    axes[0, 0].set_ylabel(
+        "Spine",
+        fontsize=14,
+    )
+
+    axes[1, 0].set_ylabel(
+        "Dendrite",
+        fontsize=14,
+    )
+
+    for ax in axes.flat:
+
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     fig.suptitle(
-        "Representative region from the DeepD3 benchmark"
+        "Representative region from the DeepD3 real benchmark",
+        fontsize=16,
     )
 
     fig.tight_layout()
 
     output_path = (
         OUTPUT_DIR
-        / "benchmark_spine_final.png"
+        / "benchmark_final_comparison.png"
     )
 
     fig.savefig(
@@ -412,9 +583,7 @@ def main():
         bbox_inches="tight",
     )
 
-    plt.close(
-        fig
-    )
+    plt.close(fig)
 
     print("\nSaved:")
     print(output_path)
