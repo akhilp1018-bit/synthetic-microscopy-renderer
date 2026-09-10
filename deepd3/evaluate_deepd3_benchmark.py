@@ -8,6 +8,9 @@ import flammkuchen as fl
 
 from tqdm import tqdm
 
+from scipy.ndimage import gaussian_filter, maximum_filter
+from scipy.spatial.distance import cdist
+
 from deepd3.core.dendrite import (
     DendriteSWC,
     xyzr,
@@ -16,7 +19,7 @@ from deepd3.core.dendrite import (
 
 
 # =========================================================
-# Default paths
+# Paths
 # =========================================================
 
 BENCHMARK_DIR = Path("benchmarks/deepd3")
@@ -45,22 +48,16 @@ DEFAULT_OUTPUT_DIR = (
 
 
 # =========================================================
-# Frozen thresholds
+# Frozen segmentation thresholds
 # =========================================================
 #
-# These thresholds were selected on SYNTHETIC VALIDATION
-# data before benchmark evaluation.
+# Selected previously on SYNTHETIC VALIDATION data.
 #
-# They are NOT tuned using benchmark annotations.
-#
-# Real-trained model:
-# Week 8 validation thresholds
-#
-# Synthetic-trained model:
-# Week 9 validation thresholds
+# IMPORTANT:
+# We do NOT tune these thresholds on the real benchmark.
 # =========================================================
 
-THRESHOLDS = {
+SEGMENTATION_THRESHOLDS = {
 
     "real_32F_94nm": {
         "dendrite": 0.01,
@@ -76,7 +73,58 @@ THRESHOLDS = {
 
 
 # =========================================================
-# Metrics
+# Frozen spine-detection thresholds
+# =========================================================
+#
+# Selected previously on SYNTHETIC VALIDATION data.
+#
+# Real-trained 32F_94nm:
+#     detection threshold = 0.29
+#
+# Synthetic-trained:
+#     detection threshold = 0.60
+#
+# These are frozen before real benchmark evaluation.
+# =========================================================
+
+DETECTION_THRESHOLDS = {
+
+    "real_32F_94nm": 0.29,
+
+    "synthetic_32F_94nm": 0.60,
+
+}
+
+
+# =========================================================
+# Spine detection settings
+# =========================================================
+#
+# Same settings as the synthetic-data evaluation.
+# =========================================================
+
+SPACING_NM_ZYX = np.array(
+    [
+        500.0,
+        94.0,
+        94.0,
+    ],
+    dtype=np.float64,
+)
+
+PEAK_NEIGHBORHOOD_ZYX = (
+    5,
+    9,
+    9,
+)
+
+GAUSSIAN_SIGMA = 1.0
+
+MATCH_DISTANCE_NM = 1000.0
+
+
+# =========================================================
+# Segmentation metrics
 # =========================================================
 
 def compute_iou(pred, gt):
@@ -158,17 +206,6 @@ def load_prediction(path):
         path
     )
 
-    # -----------------------------------------------------
-    # Expected format:
-    #
-    # {
-    #     "dendrites": ...
-    #     "spines": ...
-    # }
-    #
-    # But support full prediction arrays as well.
-    # -----------------------------------------------------
-
     if (
         isinstance(data, dict)
         and "prediction" in data
@@ -178,8 +215,13 @@ def load_prediction(path):
             data["prediction"]
         )
 
-        dendrite = prediction[..., 0]
-        spine = prediction[..., 1]
+        dendrite = (
+            prediction[..., 0]
+        )
+
+        spine = (
+            prediction[..., 1]
+        )
 
     elif (
         isinstance(data, dict)
@@ -211,8 +253,13 @@ def load_prediction(path):
                 f"{path}"
             )
 
-        dendrite = prediction[..., 0]
-        spine = prediction[..., 1]
+        dendrite = (
+            prediction[..., 0]
+        )
+
+        spine = (
+            prediction[..., 1]
+        )
 
     print(
         "Dendrite shape:",
@@ -245,7 +292,7 @@ def load_prediction(path):
 
 
 # =========================================================
-# Spine benchmark masks
+# Spine segmentation ground truth
 # =========================================================
 
 def load_spine_mask(path):
@@ -269,19 +316,13 @@ def load_spine_mask(path):
         mask.shape,
     )
 
-    # -----------------------------------------------------
-    # Official DeepD3 spine masks are stored as:
+    # DeepD3 benchmark masks are stored as:
     #
     #     (Z, X, Y)
     #
     # Benchmark TIFF is:
     #
     #     (Z, Y, X)
-    #
-    # Therefore transpose:
-    #
-    #     (0, 2, 1)
-    # -----------------------------------------------------
 
     mask = mask.transpose(
         0,
@@ -382,7 +423,7 @@ def load_all_spine_gt(
 
 
 # =========================================================
-# Robust dendrite SWC rasterization
+# Dendrite SWC rasterization
 # =========================================================
 
 def rasterize_dendrite_swc(
@@ -400,10 +441,6 @@ def rasterize_dendrite_swc(
         swc_path,
     )
 
-    # -----------------------------------------------------
-    # Load using official DeepD3 DendriteSWC parser.
-    # -----------------------------------------------------
-
     converter = DendriteSWC(
         spacing=list(spacing)
     )
@@ -413,10 +450,6 @@ def rasterize_dendrite_swc(
         str(reference_tif),
     )
 
-    # -----------------------------------------------------
-    # Create empty stack matching benchmark TIFF.
-    # -----------------------------------------------------
-
     converter.stack = np.zeros(
         converter.ref.shape,
         dtype=np.uint8,
@@ -424,14 +457,9 @@ def rasterize_dendrite_swc(
 
     swc = converter.swc
 
-    # -----------------------------------------------------
-    # Inspect SWC IDs
-    # -----------------------------------------------------
-
     node_ids = [
         int(x)
-        for x
-        in swc.index
+        for x in swc.index
     ]
 
     node_id_set = set(
@@ -459,18 +487,14 @@ def rasterize_dendrite_swc(
     )
 
     missing_ids = sorted(
-
         set(
             range(
                 min_id,
                 max_id + 1,
             )
         )
-
         -
-
         node_id_set
-
     )
 
     if missing_ids:
@@ -491,30 +515,10 @@ def rasterize_dendrite_swc(
             "Missing SWC node IDs: none"
         )
 
-    # -----------------------------------------------------
-    # Robust rasterization
-    #
-    # Official DeepD3 loops:
-    #
-    # for i in range(1, self.swc.shape[0]):
-    #
-    # This assumes consecutive node IDs.
-    #
-    # Benchmark Dendrite_V contains a missing ID,
-    # causing KeyError.
-    #
-    # We instead iterate through ACTUAL node IDs.
-    #
-    # Parent references remain unchanged.
-    # -----------------------------------------------------
-
-    drawn_edges = 0
-
-    missing_parent_edges = 0
-
-    drawing_errors = 0
-
     root_nodes = 0
+    drawn_edges = 0
+    missing_parent_edges = 0
+    drawing_errors = 0
 
     for node_id in tqdm(
         node_ids
@@ -528,30 +532,17 @@ def rasterize_dendrite_swc(
             row.parent
         )
 
-        # Root node
         if parent_id <= 0:
 
             root_nodes += 1
 
             continue
 
-        # Parent reference missing from SWC
-        if (
-            parent_id
-            not in node_id_set
-        ):
+        if parent_id not in node_id_set:
 
             missing_parent_edges += 1
 
             continue
-
-        # -------------------------------------------------
-        # Get coordinates exactly like DeepD3.
-        #
-        # xyzr returns:
-        #
-        # (y, x, z), radius
-        # -------------------------------------------------
 
         p0, r0 = xyzr(
             swc,
@@ -566,34 +557,20 @@ def rasterize_dendrite_swc(
         try:
 
             line_w_sphere(
-
                 converter.stack,
-
                 p0,
-
                 p1,
-
                 r0,
-
                 r1,
-
                 255,
-
                 converter.spacing,
-
             )
 
             drawn_edges += 1
 
-        except Exception as exc:
+        except Exception:
 
             drawing_errors += 1
-
-            # Original DeepD3 also silently ignores
-            # drawing failures.
-            #
-            # We count them so we can inspect whether
-            # anything unusual occurred.
 
     print("\nSWC rasterization summary")
     print("-------------------------")
@@ -640,17 +617,6 @@ def load_all_dendrite_gt(
     reference_tif,
 ):
 
-    # -----------------------------------------------------
-    # The benchmark SWC coordinate ranges correspond
-    # closely to image pixel coordinates.
-    #
-    # Therefore use unit spacing for this first direct
-    # rasterization.
-    #
-    # We will inspect the resulting masks before treating
-    # dendrite IoUs as final thesis numbers.
-    # -----------------------------------------------------
-
     spacing = (
         1,
         1,
@@ -666,27 +632,21 @@ def load_all_dendrite_gt(
     ]:
 
         swc_path = (
-
             benchmark_dir
             / f"Dendrite_{rater}.swc"
-
         )
 
         masks[rater] = rasterize_dendrite_swc(
-
             swc_path=swc_path,
-
             reference_tif=reference_tif,
-
             spacing=spacing,
-
         )
 
     return masks
 
 
 # =========================================================
-# Shape checking
+# GT shape checks
 # =========================================================
 
 def check_shapes(
@@ -716,12 +676,9 @@ def check_shapes(
         ):
 
             raise RuntimeError(
-
                 f"Spine GT {name} shape "
                 f"{mask.shape} does not match "
-                f"benchmark image "
-                f"{image_shape}"
-
+                f"benchmark {image_shape}"
             )
 
     for name, mask in dendrite_gt.items():
@@ -737,20 +694,17 @@ def check_shapes(
         ):
 
             raise RuntimeError(
-
                 f"Dendrite GT {name} shape "
                 f"{mask.shape} does not match "
-                f"benchmark image "
-                f"{image_shape}"
-
+                f"benchmark {image_shape}"
             )
 
 
 # =========================================================
-# Model evaluation
+# Segmentation evaluation
 # =========================================================
 
-def evaluate_model(
+def evaluate_segmentation_model(
     model_name,
     prediction_path,
     image_shape,
@@ -759,16 +713,12 @@ def evaluate_model(
 ):
 
     print("\n\n########################################")
-    print("MODEL:", model_name)
+    print("SEGMENTATION MODEL:", model_name)
     print("########################################")
 
     dend_prob, spine_prob = load_prediction(
         prediction_path
     )
-
-    # -----------------------------------------------------
-    # Shape check
-    # -----------------------------------------------------
 
     if (
         dend_prob.shape
@@ -776,12 +726,9 @@ def evaluate_model(
     ):
 
         raise RuntimeError(
-
             f"Dendrite prediction shape "
-            f"{dend_prob.shape} "
-            f"does not match benchmark "
-            f"{image_shape}"
-
+            f"{dend_prob.shape} does not match "
+            f"benchmark {image_shape}"
         )
 
     if (
@@ -790,34 +737,23 @@ def evaluate_model(
     ):
 
         raise RuntimeError(
-
             f"Spine prediction shape "
-            f"{spine_prob.shape} "
-            f"does not match benchmark "
-            f"{image_shape}"
-
+            f"{spine_prob.shape} does not match "
+            f"benchmark {image_shape}"
         )
 
-    # -----------------------------------------------------
-    # Frozen thresholds
-    # -----------------------------------------------------
-
     thresholds = (
-        THRESHOLDS[
+        SEGMENTATION_THRESHOLDS[
             model_name
         ]
     )
 
     dend_thr = (
-        thresholds[
-            "dendrite"
-        ]
+        thresholds["dendrite"]
     )
 
     spine_thr = (
-        thresholds[
-            "spine"
-        ]
+        thresholds["spine"]
     )
 
     print("\nFrozen thresholds")
@@ -833,18 +769,12 @@ def evaluate_model(
         spine_thr,
     )
 
-    # -----------------------------------------------------
-    # Threshold probability maps
-    # -----------------------------------------------------
-
     dend_pred = (
-        dend_prob
-        >= dend_thr
+        dend_prob >= dend_thr
     )
 
     spine_pred = (
-        spine_prob
-        >= spine_thr
+        spine_prob >= spine_thr
     )
 
     print("\nPredicted voxels")
@@ -852,23 +782,19 @@ def evaluate_model(
 
     print(
         "Dendrite:",
-        int(
-            dend_pred.sum()
-        ),
+        int(dend_pred.sum()),
     )
 
     print(
         "Spine   :",
-        int(
-            spine_pred.sum()
-        ),
+        int(spine_pred.sum()),
     )
 
     results = []
 
-    # =====================================================
-    # Dendrite segmentation
-    # =====================================================
+    # -----------------------------------------------------
+    # Dendrite
+    # -----------------------------------------------------
 
     print("\n========================================")
     print("DENDRITE RESULTS")
@@ -881,9 +807,7 @@ def evaluate_model(
     ]:
 
         gt = (
-            dendrite_gt[
-                rater
-            ]
+            dendrite_gt[rater]
         )
 
         iou = compute_iou(
@@ -897,38 +821,30 @@ def evaluate_model(
         )
 
         print(
-
             f"{rater}: "
             f"IoU={iou:.4f}, "
             f"Dice={dice:.4f}"
-
         )
 
         results.append({
 
-            "model":
-                model_name,
+            "model": model_name,
 
-            "structure":
-                "dendrite",
+            "structure": "dendrite",
 
-            "ground_truth":
-                rater,
+            "ground_truth": rater,
 
-            "threshold":
-                dend_thr,
+            "threshold": dend_thr,
 
-            "iou":
-                iou,
+            "iou": iou,
 
-            "dice":
-                dice,
+            "dice": dice,
 
         })
 
-    # =====================================================
-    # Spine segmentation
-    # =====================================================
+    # -----------------------------------------------------
+    # Spine
+    # -----------------------------------------------------
 
     print("\n========================================")
     print("SPINE RESULTS")
@@ -949,9 +865,7 @@ def evaluate_model(
     ]:
 
         gt = (
-            spine_gt[
-                gt_name
-            ]
+            spine_gt[gt_name]
         )
 
         iou = compute_iou(
@@ -965,11 +879,660 @@ def evaluate_model(
         )
 
         print(
-
             f"{gt_name}: "
             f"IoU={iou:.4f}, "
             f"Dice={dice:.4f}"
+        )
 
+        results.append({
+
+            "model": model_name,
+
+            "structure": "spine",
+
+            "ground_truth": gt_name,
+
+            "threshold": spine_thr,
+
+            "iou": iou,
+
+            "dice": dice,
+
+        })
+
+    return results
+
+
+# =========================================================
+# Benchmark spine-center loading
+# =========================================================
+
+def load_benchmark_spine_centers(
+    csv_path,
+):
+
+    print("\n========================================")
+    print("Loading benchmark spine centers")
+    print("========================================")
+
+    print(
+        csv_path
+    )
+
+    df = pd.read_csv(
+        csv_path
+    )
+
+    required = {
+        "Rater",
+        "X",
+        "Y",
+        "Pos",
+        "label",
+    }
+
+    missing = (
+        required
+        - set(df.columns)
+    )
+
+    if missing:
+
+        raise RuntimeError(
+            "Missing required columns: "
+            f"{missing}"
+        )
+
+    print(
+        "Annotation rows :",
+        len(df),
+    )
+
+    print(
+        "Unique raters   :",
+        df["Rater"].nunique(),
+    )
+
+    print(
+        "Unique clusters :",
+        df["label"].nunique(),
+    )
+
+    clusters = []
+
+    for cluster_id, group in df.groupby(
+        "label"
+    ):
+
+        # CSV:
+        #
+        # X   = image X
+        # Y   = image Y
+        # Pos = image Z
+        #
+        # Store as Z,Y,X.
+
+        z = float(
+            group["Pos"].mean()
+        )
+
+        y = float(
+            group["Y"].mean()
+        )
+
+        x = float(
+            group["X"].mean()
+        )
+
+        n_raters = int(
+            group["Rater"].nunique()
+        )
+
+        clusters.append({
+
+            "cluster_id":
+                cluster_id,
+
+            "z":
+                z,
+
+            "y":
+                y,
+
+            "x":
+                x,
+
+            "n_raters":
+                n_raters,
+
+        })
+
+    cluster_df = pd.DataFrame(
+        clusters
+    )
+
+    print("\nCluster agreement")
+    print("-----------------")
+
+    agreement_counts = (
+        cluster_df[
+            "n_raters"
+        ]
+        .value_counts()
+        .sort_index()
+    )
+
+    for n_raters, count in agreement_counts.items():
+
+        print(
+            f"{int(n_raters)} rater(s): "
+            f"{int(count)} clusters"
+        )
+
+    print("\nCumulative GT counts")
+    print("--------------------")
+
+    for min_raters in range(
+        1,
+        8,
+    ):
+
+        count = int(
+            (
+                cluster_df[
+                    "n_raters"
+                ]
+                >= min_raters
+            ).sum()
+        )
+
+        print(
+            f">= {min_raters} raters: "
+            f"{count} clusters"
+        )
+
+    return cluster_df
+
+
+# =========================================================
+# Predicted spine-center detection
+# =========================================================
+
+def detect_spine_peaks(
+    spine_probability,
+    threshold,
+):
+
+    # Same approach used for synthetic evaluation.
+
+    smoothed = gaussian_filter(
+        spine_probability,
+        sigma=GAUSSIAN_SIGMA,
+    )
+
+    local_maximum = (
+        smoothed
+        ==
+        maximum_filter(
+            smoothed,
+            size=PEAK_NEIGHBORHOOD_ZYX,
+            mode="nearest",
+        )
+    )
+
+    keep = (
+        local_maximum
+        &
+        (
+            smoothed
+            >= threshold
+        )
+    )
+
+    coords_zyx = np.argwhere(
+        keep
+    )
+
+    return coords_zyx
+
+
+# =========================================================
+# Coordinate conversion
+# =========================================================
+
+def pixel_to_nm(
+    coords_zyx,
+):
+
+    coords_zyx = np.asarray(
+        coords_zyx,
+        dtype=np.float64,
+    )
+
+    return (
+        coords_zyx
+        * SPACING_NM_ZYX
+    )
+
+
+# =========================================================
+# Greedy one-to-one matching
+# =========================================================
+
+def greedy_match_centers(
+    predicted_zyx,
+    gt_zyx,
+    max_distance_nm=MATCH_DISTANCE_NM,
+):
+
+    predicted_zyx = np.asarray(
+        predicted_zyx,
+        dtype=np.float64,
+    )
+
+    gt_zyx = np.asarray(
+        gt_zyx,
+        dtype=np.float64,
+    )
+
+    n_pred = len(
+        predicted_zyx
+    )
+
+    n_gt = len(
+        gt_zyx
+    )
+
+    if n_pred == 0:
+
+        return {
+
+            "tp": 0,
+
+            "fp": 0,
+
+            "fn": n_gt,
+
+            "matched_distances_nm": [],
+
+        }
+
+    if n_gt == 0:
+
+        return {
+
+            "tp": 0,
+
+            "fp": n_pred,
+
+            "fn": 0,
+
+            "matched_distances_nm": [],
+
+        }
+
+    pred_nm = pixel_to_nm(
+        predicted_zyx
+    )
+
+    gt_nm = pixel_to_nm(
+        gt_zyx
+    )
+
+    distance_matrix = cdist(
+        pred_nm,
+        gt_nm,
+    )
+
+    pred_indices, gt_indices = np.where(
+        distance_matrix
+        <= max_distance_nm
+    )
+
+    candidate_pairs = []
+
+    for p_idx, g_idx in zip(
+        pred_indices,
+        gt_indices,
+    ):
+
+        candidate_pairs.append(
+            (
+                float(
+                    distance_matrix[
+                        p_idx,
+                        g_idx,
+                    ]
+                ),
+                int(p_idx),
+                int(g_idx),
+            )
+        )
+
+    candidate_pairs.sort(
+        key=lambda x: x[0]
+    )
+
+    used_pred = set()
+    used_gt = set()
+
+    matched_distances = []
+
+    for (
+        distance,
+        p_idx,
+        g_idx,
+    ) in candidate_pairs:
+
+        if p_idx in used_pred:
+            continue
+
+        if g_idx in used_gt:
+            continue
+
+        used_pred.add(
+            p_idx
+        )
+
+        used_gt.add(
+            g_idx
+        )
+
+        matched_distances.append(
+            distance
+        )
+
+    tp = len(
+        matched_distances
+    )
+
+    fp = (
+        n_pred
+        - tp
+    )
+
+    fn = (
+        n_gt
+        - tp
+    )
+
+    return {
+
+        "tp":
+            tp,
+
+        "fp":
+            fp,
+
+        "fn":
+            fn,
+
+        "matched_distances_nm":
+            matched_distances,
+
+    }
+
+
+# =========================================================
+# Precision / recall / F1
+# =========================================================
+
+def detection_metrics(
+    tp,
+    fp,
+    fn,
+):
+
+    if (
+        tp + fp
+    ) > 0:
+
+        precision = (
+            tp
+            /
+            (tp + fp)
+        )
+
+    else:
+
+        precision = 0.0
+
+    if (
+        tp + fn
+    ) > 0:
+
+        recall = (
+            tp
+            /
+            (tp + fn)
+        )
+
+    else:
+
+        recall = 0.0
+
+    if (
+        precision + recall
+    ) > 0:
+
+        f1 = (
+            2.0
+            * precision
+            * recall
+            /
+            (
+                precision
+                + recall
+            )
+        )
+
+    else:
+
+        f1 = 0.0
+
+    return (
+        precision,
+        recall,
+        f1,
+    )
+
+
+# =========================================================
+# Spine detection evaluation
+# =========================================================
+
+def evaluate_spine_detection(
+    model_name,
+    prediction_path,
+    cluster_df,
+):
+
+    print("\n\n########################################")
+    print("SPINE DETECTION:", model_name)
+    print("########################################")
+
+    _, spine_probability = load_prediction(
+        prediction_path
+    )
+
+    threshold = (
+        DETECTION_THRESHOLDS[
+            model_name
+        ]
+    )
+
+    print(
+        "\nFrozen detection threshold:",
+        threshold,
+    )
+
+    print(
+        "Gaussian sigma:",
+        GAUSSIAN_SIGMA,
+    )
+
+    print(
+        "Peak neighborhood ZYX:",
+        PEAK_NEIGHBORHOOD_ZYX,
+    )
+
+    print(
+        "Match distance:",
+        MATCH_DISTANCE_NM,
+        "nm",
+    )
+
+    predicted_centers = detect_spine_peaks(
+        spine_probability,
+        threshold,
+    )
+
+    print(
+        "\nPredicted peaks:",
+        len(predicted_centers),
+    )
+
+    results = []
+
+    # -----------------------------------------------------
+    # Test progressively stronger human agreement.
+    #
+    # >=1:
+    # all benchmark clusters
+    #
+    # >=4:
+    # majority/high-agreement spines
+    #
+    # >=7:
+    # unanimous annotations
+    # -----------------------------------------------------
+
+    for min_raters in [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+    ]:
+
+        gt_subset = cluster_df[
+            cluster_df["n_raters"]
+            >= min_raters
+        ].copy()
+
+        gt_centers = gt_subset[
+            [
+                "z",
+                "y",
+                "x",
+            ]
+        ].to_numpy(
+            dtype=np.float64
+        )
+
+        matching = greedy_match_centers(
+            predicted_zyx=predicted_centers,
+            gt_zyx=gt_centers,
+            max_distance_nm=MATCH_DISTANCE_NM,
+        )
+
+        tp = (
+            matching["tp"]
+        )
+
+        fp = (
+            matching["fp"]
+        )
+
+        fn = (
+            matching["fn"]
+        )
+
+        (
+            precision,
+            recall,
+            f1,
+        ) = detection_metrics(
+            tp,
+            fp,
+            fn,
+        )
+
+        matched_distances = (
+            matching[
+                "matched_distances_nm"
+            ]
+        )
+
+        if matched_distances:
+
+            mean_distance = float(
+                np.mean(
+                    matched_distances
+                )
+            )
+
+            median_distance = float(
+                np.median(
+                    matched_distances
+                )
+            )
+
+        else:
+
+            mean_distance = np.nan
+
+            median_distance = np.nan
+
+        print("\n----------------------------------------")
+
+        print(
+            f"Minimum raters: {min_raters}"
+        )
+
+        print("----------------------------------------")
+
+        print(
+            "GT clusters :",
+            len(gt_centers),
+        )
+
+        print(
+            "Predictions :",
+            len(predicted_centers),
+        )
+
+        print(
+            "TP / FP / FN:",
+            tp,
+            "/",
+            fp,
+            "/",
+            fn,
+        )
+
+        print(
+            f"Precision: {precision:.4f}"
+        )
+
+        print(
+            f"Recall   : {recall:.4f}"
+        )
+
+        print(
+            f"F1       : {f1:.4f}"
+        )
+
+        print(
+            "Mean match distance   : "
+            f"{mean_distance:.1f} nm"
+        )
+
+        print(
+            "Median match distance : "
+            f"{median_distance:.1f} nm"
         )
 
         results.append({
@@ -977,20 +1540,47 @@ def evaluate_model(
             "model":
                 model_name,
 
-            "structure":
-                "spine",
+            "min_raters":
+                min_raters,
 
-            "ground_truth":
-                gt_name,
+            "gt_clusters":
+                len(gt_centers),
+
+            "predicted_peaks":
+                len(predicted_centers),
 
             "threshold":
-                spine_thr,
+                threshold,
 
-            "iou":
-                iou,
+            "gaussian_sigma":
+                GAUSSIAN_SIGMA,
 
-            "dice":
-                dice,
+            "match_distance_nm":
+                MATCH_DISTANCE_NM,
+
+            "tp":
+                tp,
+
+            "fp":
+                fp,
+
+            "fn":
+                fn,
+
+            "precision":
+                precision,
+
+            "recall":
+                recall,
+
+            "f1":
+                f1,
+
+            "mean_match_distance_nm":
+                mean_distance,
+
+            "median_match_distance_nm":
+                median_distance,
 
         })
 
@@ -1006,11 +1596,8 @@ def main():
     parser = argparse.ArgumentParser(
 
         description=(
-
-            "Evaluate real-trained and "
-            "synthetic-trained DeepD3 models "
-            "on the DeepD3 benchmark."
-
+            "Evaluate real-trained and synthetic-trained "
+            "DeepD3 models on the DeepD3 benchmark."
         )
 
     )
@@ -1064,19 +1651,24 @@ def main():
     )
 
     reference_tif = (
-
         benchmark_dir
         / "DeepD3_Benchmark.tif"
-
     )
 
-    # -----------------------------------------------------
-    # Required-file checks
-    # -----------------------------------------------------
+    annotation_csv = (
+        benchmark_dir
+        / "Annotations_and_Clusters.csv"
+    )
+
+    # =====================================================
+    # Required files
+    # =====================================================
 
     required_files = [
 
         reference_tif,
+
+        annotation_csv,
 
         benchmark_dir
         / "Segmentation_U.mask",
@@ -1110,9 +1702,9 @@ def main():
                 path
             )
 
-    # -----------------------------------------------------
-    # Benchmark image
-    # -----------------------------------------------------
+    # =====================================================
+    # Load benchmark image
+    # =====================================================
 
     image = tifffile.imread(
         reference_tif
@@ -1141,49 +1733,42 @@ def main():
         int(image.max()),
     )
 
-    # -----------------------------------------------------
-    # Spine ground truth
-    # -----------------------------------------------------
+    # =====================================================
+    # Load segmentation GT
+    # =====================================================
 
     spine_gt = load_all_spine_gt(
         benchmark_dir
     )
 
-    # -----------------------------------------------------
-    # Dendrite ground truth
-    # -----------------------------------------------------
-
     dendrite_gt = load_all_dendrite_gt(
-
         benchmark_dir,
-
         reference_tif,
-
     )
-
-    # -----------------------------------------------------
-    # Verify all dimensions
-    # -----------------------------------------------------
 
     check_shapes(
-
         image=image,
-
         spine_gt=spine_gt,
-
         dendrite_gt=dendrite_gt,
-
     )
 
-    # -----------------------------------------------------
-    # Evaluate both models
-    # -----------------------------------------------------
+    # =====================================================
+    # Load center annotations
+    # =====================================================
 
-    results = []
+    cluster_df = load_benchmark_spine_centers(
+        annotation_csv
+    )
 
-    results.extend(
+    # =====================================================
+    # SEGMENTATION EVALUATION
+    # =====================================================
 
-        evaluate_model(
+    segmentation_results = []
+
+    segmentation_results.extend(
+
+        evaluate_segmentation_model(
 
             model_name=
                 "real_32F_94nm",
@@ -1204,9 +1789,9 @@ def main():
 
     )
 
-    results.extend(
+    segmentation_results.extend(
 
-        evaluate_model(
+        evaluate_segmentation_model(
 
             model_name=
                 "synthetic_32F_94nm",
@@ -1227,65 +1812,133 @@ def main():
 
     )
 
-    # -----------------------------------------------------
-    # Save results
-    # -----------------------------------------------------
+    segmentation_df = pd.DataFrame(
+        segmentation_results
+    )
+
+    # =====================================================
+    # SPINE DETECTION EVALUATION
+    # =====================================================
+
+    detection_results = []
+
+    detection_results.extend(
+
+        evaluate_spine_detection(
+
+            model_name=
+                "real_32F_94nm",
+
+            prediction_path=
+                args.real_prediction,
+
+            cluster_df=
+                cluster_df,
+
+        )
+
+    )
+
+    detection_results.extend(
+
+        evaluate_spine_detection(
+
+            model_name=
+                "synthetic_32F_94nm",
+
+            prediction_path=
+                args.synthetic_prediction,
+
+            cluster_df=
+                cluster_df,
+
+        )
+
+    )
+
+    detection_df = pd.DataFrame(
+        detection_results
+    )
+
+    # =====================================================
+    # Save
+    # =====================================================
 
     args.output_dir.mkdir(
-
         parents=True,
-
         exist_ok=True,
-
     )
 
-    df = pd.DataFrame(
-        results
-    )
-
-    output_csv = (
-
+    segmentation_csv = (
         args.output_dir
         / "segmentation_results.csv"
-
     )
 
-    df.to_csv(
+    detection_csv = (
+        args.output_dir
+        / "spine_detection_results.csv"
+    )
 
-        output_csv,
-
+    segmentation_df.to_csv(
+        segmentation_csv,
         index=False,
-
     )
 
-    # -----------------------------------------------------
-    # Print summary
-    # -----------------------------------------------------
+    detection_df.to_csv(
+        detection_csv,
+        index=False,
+    )
+
+    # =====================================================
+    # Print segmentation summary
+    # =====================================================
 
     print("\n\n========================================")
     print("FINAL SEGMENTATION SUMMARY")
     print("========================================")
 
-    summary_columns = [
+    print(
 
-        "model",
+        segmentation_df[
+            [
+                "model",
+                "structure",
+                "ground_truth",
+                "threshold",
+                "iou",
+                "dice",
+            ]
+        ].to_string(
+            index=False
+        )
 
-        "structure",
+    )
 
-        "ground_truth",
+    # =====================================================
+    # Print detection summary
+    # =====================================================
 
-        "threshold",
-
-        "iou",
-
-        "dice",
-
-    ]
+    print("\n\n========================================")
+    print("FINAL SPINE DETECTION SUMMARY")
+    print("========================================")
 
     print(
 
-        df[
-            summary_columns
+        detection_df[
+            [
+                "model",
+                "min_raters",
+                "gt_clusters",
+                "predicted_peaks",
+                "threshold",
+                "tp",
+                "fp",
+                "fn",
+                "precision",
+                "recall",
+                "f1",
+                "mean_match_distance_nm",
+            ]
         ].to_string(
             index=False
         )
@@ -1293,7 +1946,14 @@ def main():
     )
 
     print("\nSaved:")
-    print(output_csv)
+
+    print(
+        segmentation_csv
+    )
+
+    print(
+        detection_csv
+    )
 
     print("\nDone.")
 
