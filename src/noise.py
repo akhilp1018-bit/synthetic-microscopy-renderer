@@ -6,13 +6,13 @@ This module adds simple microscopy-like noise to a rendered volume.
 Noise pipeline:
     1. Normalize clean rendered volume to [0, 1].
     2. Scale by peak photon count.
-    3. Apply Poisson shot noise.
-    4. Optionally add Gaussian read/background noise.
-    5. Clamp negative values to zero.
+    3. Apply the selected noise model.
+    4. Clamp negative values to zero.
 
 Supported noise modes:
     none
     poisson
+    gaussian
     poisson_gaussian
 
 Coordinate convention:
@@ -33,9 +33,10 @@ def add_microscopy_noise_torch(
     read_noise_std: float = 5.0,
     seed: int | None = 0,
     gaussian_chunk_slices: int = 16,
+    apply_poisson: bool = True,
 ) -> torch.Tensor:
     """
-    Add Poisson photon noise and optional Gaussian read/background noise.
+    Add microscopy noise.
 
     Args:
         vol:
@@ -55,6 +56,11 @@ def add_microscopy_noise_torch(
 
         gaussian_chunk_slices:
             Number of Z slices processed at once when adding Gaussian noise.
+
+        apply_poisson:
+            If True, apply Poisson shot noise before optional Gaussian noise.
+            If False, skip Poisson sampling and use the scaled clean signal
+            directly before adding Gaussian noise.
 
     Returns:
         Noisy image volume as a Torch tensor in ZYX order.
@@ -88,8 +94,11 @@ def add_microscopy_noise_torch(
     # Convert normalized intensity to expected photon counts.
     expected_photons = normalized * peak_photons
 
-    # Poisson shot noise.
-    noisy = torch.poisson(expected_photons)
+    # Poisson shot noise, if enabled.
+    if apply_poisson:
+        noisy = torch.poisson(expected_photons)
+    else:
+        noisy = expected_photons.clone()
 
     # Optional additive Gaussian read/background noise.
     if read_noise_std > 0:
@@ -130,6 +139,10 @@ def apply_noise_if_enabled(
 
         poisson
             Apply photon scaling and Poisson shot noise only.
+
+        gaussian
+            Apply additive Gaussian read/background noise only.
+            Poisson sampling is skipped.
 
         poisson_gaussian
             Apply Poisson shot noise followed by additive Gaussian
@@ -193,8 +206,13 @@ def apply_noise_if_enabled(
     if mode == "none":
         return vol
 
+    apply_poisson = True
+
     if mode == "poisson":
         read_noise_std = 0.0
+
+    elif mode == "gaussian":
+        apply_poisson = False
 
     elif mode == "poisson_gaussian":
         pass
@@ -202,7 +220,7 @@ def apply_noise_if_enabled(
     else:
         raise ValueError(
             f"Unknown noise mode: {mode}. "
-            "Use 'none', 'poisson', or 'poisson_gaussian'."
+            "Use 'none', 'poisson', 'gaussian', or 'poisson_gaussian'."
         )
 
     return add_microscopy_noise_torch(
@@ -211,4 +229,5 @@ def apply_noise_if_enabled(
         read_noise_std=read_noise_std,
         seed=seed,
         gaussian_chunk_slices=gaussian_chunk_slices,
+        apply_poisson=apply_poisson,
     )

@@ -767,6 +767,34 @@ def main():
                         f"spine_{i}",
                     )
 
+                    # -------------------------------------------------
+                    # Optional individual spine GT mask
+                    # -------------------------------------------------
+
+                    if mask_cfg.get(
+                        "save_individual_spine_masks",
+                        False,
+                    ):
+                        individual_spine_mask = make_mask(
+                            spine_render,
+                            mask_cfg.get(
+                                "spine_rel_threshold",
+                                0.1,
+                            ),
+                        )
+
+                        save_tiff(
+                            individual_spine_mask,
+                            instance_dir
+                            / f"spine_{i:03d}_mask.tif",
+                            bit_depth,
+                            xy_um,
+                            z_um,
+                            is_mask=True,
+                        )
+
+                        del individual_spine_mask
+
                     spine_volume += (
                         spine_render
                     )
