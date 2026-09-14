@@ -12,9 +12,10 @@ Coordinate convention:
         [Z slices, Y pixels, X pixels]
 
 Note:
-    Gaussian splatting currently supports membrane-style labelling only.
+    Gaussian splatting  supports membrane-style labelling only.
 """
 
+import gc
 import math
 import time
 
@@ -22,26 +23,82 @@ import numpy as np
 import torch
 import trimesh
 
-from src.voxel_renderer import focal_stack_from_density
+from src.voxel_renderer import (
+    _load_and_crop_mesh_geometry,
+    focal_stack_from_density,
+)
 
 
-def _load_mesh(mesh_path):
+def _load_cropped_mesh_to_grid(mesh_path, grid, sigma_zyx):
     """
-    Load a mesh as a trimesh.Trimesh object.
+    Load only mesh geometry that can contribute to the splatting volume.
 
-    If a scene is returned, all Trimesh geometries are concatenated.
+    The crop includes a margin equal to the local Gaussian splat radius.
+    For supported binary PLY files, geometry is streamed in chunks through
+    the shared memory-safe ROI loader from the voxel renderer, so the full
+    source mesh does not need to be constructed in RAM.
     """
-    mesh = trimesh.load(mesh_path, force="mesh", process=False)
+    origin = np.asarray(grid["origin_nm"], dtype=np.float64)
+    voxel_size = np.asarray(
+        grid["voxel_size_nm_xyz"],
+        dtype=np.float64,
+    )
 
-    if isinstance(mesh, trimesh.Scene):
-        mesh = trimesh.util.concatenate(
-            [g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)]
+    Z, Y, X = [int(v) for v in grid["shape_zyx"]]
+    sx, sy, sz = voxel_size
+    x0, y0, z0 = origin
+
+    sigma_z, sigma_y, sigma_x = [float(v) for v in sigma_zyx]
+
+    radius_x = max(1, int(math.ceil(3.0 * sigma_x)))
+    radius_y = max(1, int(math.ceil(3.0 * sigma_y)))
+    radius_z = max(1, int(math.ceil(3.0 * sigma_z)))
+
+    roi_min = np.array(
+        [
+            x0 - radius_x * sx,
+            y0 - radius_y * sy,
+            z0 - radius_z * sz,
+        ],
+        dtype=np.float64,
+    )
+    roi_max = np.array(
+        [
+            x0 + X * sx + radius_x * sx,
+            y0 + Y * sy + radius_y * sy,
+            z0 + Z * sz + radius_z * sz,
+        ],
+        dtype=np.float64,
+    )
+
+    vertices, faces, total_faces = _load_and_crop_mesh_geometry(
+        mesh_path=mesh_path,
+        roi_min=roi_min,
+        roi_max=roi_max,
+        face_filter_batch=65536,
+    )
+
+    if vertices is None or faces is None:
+        print(
+            f"ROI face filter: kept 0 / {total_faces} faces "
+            "(no mesh surface can contribute to the render grid)"
         )
+        return None
 
-    if not isinstance(mesh, trimesh.Trimesh):
-        raise ValueError(f"Could not load mesh as Trimesh: {mesh_path}")
+    kept_faces = len(faces)
+    print(
+        f"ROI face filter: kept {kept_faces} / {total_faces} faces "
+        f"({100.0 * kept_faces / total_faces:.4f}%)"
+    )
 
-    return mesh
+    # The cropped geometry is small enough to construct as a Trimesh and use
+    # with trimesh's surface sampler. Keep processing disabled so geometry is
+    # not modified.
+    return trimesh.Trimesh(
+        vertices=np.asarray(vertices, dtype=np.float32),
+        faces=np.asarray(faces, dtype=np.int64),
+        process=False,
+    )
 
 
 def _sample_surface_points(mesh, spacing_nm=100.0, seed=0):
@@ -261,9 +318,20 @@ def render_single_mesh_splatting(
     total_start = time.perf_counter()
 
     mesh_load_start = time.perf_counter()
-    mesh = _load_mesh(mesh_path)
+    mesh = _load_cropped_mesh_to_grid(
+        mesh_path=mesh_path,
+        grid=grid,
+        sigma_zyx=sigma_zyx,
+    )
     mesh_load_time = time.perf_counter() - mesh_load_start
-    print(f"[{tag}] mesh load time : {mesh_load_time:.1f}s")
+    print(f"[{tag}] mesh crop/load time: {mesh_load_time:.1f}s")
+
+    if mesh is None:
+        return torch.zeros(
+            tuple(grid["shape_zyx"]),
+            dtype=torch.float32,
+            device=device,
+        )
 
     sampling_start = time.perf_counter()
 
@@ -272,6 +340,9 @@ def render_single_mesh_splatting(
         spacing_nm=spacing_nm,
         seed=seed,
     )
+
+    del mesh
+    gc.collect()
 
     sampling_time = time.perf_counter() - sampling_start
     print(f"[{tag}] sampling time  : {sampling_time:.1f}s")

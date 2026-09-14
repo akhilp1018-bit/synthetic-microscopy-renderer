@@ -10,25 +10,33 @@ grid:
   xy_um_per_px: 0.094
   z_step_um: 0.5
   use_roi: false
+  roi_size_um_x: 150.0
+  roi_size_um_y: 150.0
   margin: 0.05
   shape_mode: fixed
   output_shape_zyx:
   - 64
   - 128
   - 128
-  center_xyz_nm:
-  - 2593856.0
-  - 1439222.156389081
-  - 52776.12592059758
-  selected_bounds_xyz_nm:
-    xmin: 2587840.0
-    xmax: 2599872.0
-    ymin: 1433206.156389081
-    ymax: 1445238.156389081
-    zmin: 36776.12592059758
-    zmax: 68776.12592059758
+  roi_world_to_local_4x4:
+  - - 0.9137050106105501
+    - -0.11751821416240783
+    - -0.3890149392050442
+    - -2102333.7279926147
+  - - -0.37087934458067406
+    - 0.15013854160427434
+    - -0.9164643637854745
+    - 741917.4274791372
+  - - 0.1661073910105516
+    - 0.9816556869212529
+    - 0.09359725950476941
+    - -1835750.4991929969
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
 renderer:
-  method: voxel_grid
+  method: gaussian_splatting
   labeling_mode: membrane
   spacing_nm: 200
   batch_faces: 2048

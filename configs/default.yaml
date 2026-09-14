@@ -106,7 +106,7 @@ grid:
   #   0.2   -> 200 nm/px, use xy200 PSF
   #   0.094 -> 94 nm/px, use xy94 PSF
   #
-  xy_um_per_px: 0.2
+  xy_um_per_px: 0.094
 
   # Z spacing in micrometres.
   z_step_um: 0.5
@@ -119,7 +119,7 @@ grid:
   #   false = render full mesh bounding box
   #   true  = render centered XY crop around the mesh/labelled components
   #
-  use_roi: true
+  use_roi: false
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
@@ -145,7 +145,7 @@ grid:
   #     Useful for fixed-size dataset patches.
   #     The selected ROI center must contain geometry, otherwise output can be empty.
   #
-  shape_mode: auto
+  shape_mode: fixed
 
   # Used only when shape_mode: fixed.
   # Order: [Z, Y, X]
@@ -167,7 +167,7 @@ renderer:
   #     Mesh surface is sampled as continuous points and accumulated using
   #     Gaussian kernels. PSF convolution can optionally be applied afterwards.
   #
-  method: voxel_grid
+  method: gaussian_splatting
 
   # ------------------------------------------------------------
   # Label/density mode

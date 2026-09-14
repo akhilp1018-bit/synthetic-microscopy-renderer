@@ -122,7 +122,7 @@ grid:
   #   false = render full mesh bounding box
   #   true  = render centered XY crop around the mesh/labelled components
   #
-  use_roi: true
+  use_roi: false
 
   # ROI size in micrometres.
   # Used only when use_roi: true.
@@ -148,7 +148,7 @@ grid:
   #     Useful for fixed-size dataset patches.
   #     The selected ROI center must contain geometry, otherwise output can be empty.
   #
-  shape_mode: auto
+  shape_mode: fixed
 
   # Used only when shape_mode: fixed.
   # Order: [Z, Y, X]

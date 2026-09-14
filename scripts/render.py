@@ -230,6 +230,56 @@ def get_output_shape_from_config(grid_cfg):
     raise ValueError("grid.shape_mode must be 'auto' or 'fixed'")
 
 
+
+def get_oriented_roi_local_bounds_nm(grid_cfg, renderer_cfg, config):
+    """Return conservative XYZ bounds for memory-safe oriented ROI preparation.
+
+    The bounds are expressed in the ROI-local coordinate system, where the
+    selected ROI centre is at XYZ=(0, 0, 0). A renderer-specific margin is
+    included so geometry that can contribute near the volume boundary is not
+    discarded during the pre-crop.
+    """
+    output_shape_zyx = get_output_shape_from_config(grid_cfg)
+    if output_shape_zyx is None:
+        raise ValueError(
+            "An oriented GUI ROI requires grid.shape_mode='fixed' and "
+            "grid.output_shape_zyx."
+        )
+
+    Z, Y, X = output_shape_zyx
+    sx = float(grid_cfg["xy_um_per_px"]) * 1000.0
+    sy = sx
+    sz = float(grid_cfg["z_step_um"]) * 1000.0
+
+    method = renderer_cfg.get("method", "voxel_grid")
+
+    if method == "gaussian_splatting":
+        sigma_z, sigma_y, sigma_x = [
+            float(v)
+            for v in config.get("splatting", {}).get(
+                "sigma_zyx", [1.0, 2.0, 2.0]
+            )
+        ]
+        margin_x = max(1.0, 3.0 * sigma_x) * sx
+        margin_y = max(1.0, 3.0 * sigma_y) * sy
+        margin_z = max(1.0, 3.0 * sigma_z) * sz
+    else:
+        margin_x = sx
+        margin_y = sy
+        margin_z = sz
+
+    # Use N*spacing rather than (N-1)*spacing here intentionally. This is a
+    # conservative pre-crop; the renderer performs the final exact grid test.
+    half_x = 0.5 * X * sx + margin_x
+    half_y = 0.5 * Y * sy + margin_y
+    half_z = 0.5 * Z * sz + margin_z
+
+    return (
+        -half_x, half_x,
+        -half_y, half_y,
+        -half_z, half_z,
+    )
+
 def main():
     """
     Main rendering workflow.
@@ -278,6 +328,32 @@ def main():
     print("=" * 60)
 
     # ------------------------------------------------------------
+    # Optional oriented ROI transform exported by the GUI
+    # ------------------------------------------------------------
+    # The matrix maps world XYZ coordinates into the ROI-local coordinate
+    # system. It is applied during mesh preparation so scaling, recentering,
+    # and ROI transformation require only one preparation load per mesh.
+    roi_world_to_local_4x4 = grid_cfg.get(
+        "roi_world_to_local_4x4",
+        None,
+    )
+    roi_transform_applied = roi_world_to_local_4x4 is not None
+
+    roi_local_bounds_xyz_nm = None
+
+    if roi_transform_applied:
+        print("\nApplying mouse-selected oriented ROI transform.")
+        roi_local_bounds_xyz_nm = get_oriented_roi_local_bounds_nm(
+            grid_cfg=grid_cfg,
+            renderer_cfg=renderer_cfg,
+            config=config,
+        )
+        print(
+            "Using memory-safe oriented ROI pre-crop bounds XYZ nm: "
+            f"{roi_local_bounds_xyz_nm}"
+        )
+
+    # ------------------------------------------------------------
     # Input preparation
     # ------------------------------------------------------------
     # single_mesh:
@@ -294,6 +370,8 @@ def main():
             mesh_path=mesh_path,
             scale_to_nm=float(input_cfg.get("scale_to_nm", 1.0)),
             recenter=bool(input_cfg.get("recenter", False)),
+            world_to_local_4x4=roi_world_to_local_4x4,
+            roi_local_bounds_xyz_nm=roi_local_bounds_xyz_nm,
         )
 
         all_sim_paths = [sim_mesh_path]
@@ -312,6 +390,8 @@ def main():
             spine_paths=spine_paths,
             scale_to_nm=float(input_cfg.get("scale_to_nm", 1.0)),
             recenter=bool(input_cfg.get("recenter", False)),
+            world_to_local_4x4=roi_world_to_local_4x4,
+            roi_local_bounds_xyz_nm=roi_local_bounds_xyz_nm,
         )
 
         all_sim_paths = [sim_dendrite_path] + sim_spine_paths
@@ -365,42 +445,55 @@ def main():
     fixed_center_xyz_nm = None
 
     if output_shape_zyx is not None:
-        selected_center_xyz_nm = grid_cfg.get("center_xyz_nm", None)
-
-        if selected_center_xyz_nm is not None:
-            if (
-                not isinstance(selected_center_xyz_nm, (list, tuple))
-                or len(selected_center_xyz_nm) != 3
-            ):
-                raise ValueError(
-                    "grid.center_xyz_nm must contain three values "
-                    "in order [X, Y, Z]"
-                )
-
-            fixed_center_xyz_nm = tuple(
-                float(v) for v in selected_center_xyz_nm
-            )
-
+        if roi_transform_applied:
+            # The selected ROI has already been transformed into its own
+            # coordinate system, where the ROI centre is XYZ = (0, 0, 0).
+            fixed_center_xyz_nm = (0.0, 0.0, 0.0)
             print(
-                "Using selected fixed-grid center XYZ nm: "
-                f"{fixed_center_xyz_nm}"
+                "Using oriented ROI local centre XYZ nm: "
+                "(0.0, 0.0, 0.0)"
             )
 
         else:
-            # Original behaviour for existing configs.
-            if input_mode == "labelled_components":
-                fixed_center_xyz_nm = get_mesh_anchor_nm(
-                    sim_dendrite_path
-                )
-            else:
-                fixed_center_xyz_nm = get_mesh_anchor_nm(
-                    sim_mesh_path
+            selected_center_xyz_nm = grid_cfg.get(
+                "center_xyz_nm",
+                None,
+            )
+
+            if selected_center_xyz_nm is not None:
+                if (
+                    not isinstance(selected_center_xyz_nm, (list, tuple))
+                    or len(selected_center_xyz_nm) != 3
+                ):
+                    raise ValueError(
+                        "grid.center_xyz_nm must contain three values "
+                        "in order [X, Y, Z]"
+                    )
+
+                fixed_center_xyz_nm = tuple(
+                    float(v) for v in selected_center_xyz_nm
                 )
 
-            print(
-                "Using automatic mesh anchor XYZ nm: "
-                f"{fixed_center_xyz_nm}"
-            )
+                print(
+                    "Using selected fixed-grid center XYZ nm: "
+                    f"{fixed_center_xyz_nm}"
+                )
+
+            else:
+                # Select an anchor point from the prepared mesh geometry.
+                if input_mode == "labelled_components":
+                    fixed_center_xyz_nm = get_mesh_anchor_nm(
+                        sim_dendrite_path
+                    )
+                else:
+                    fixed_center_xyz_nm = get_mesh_anchor_nm(
+                        sim_mesh_path
+                    )
+
+                print(
+                    "Using automatic mesh anchor XYZ nm: "
+                    f"{fixed_center_xyz_nm}"
+                )
 
     grid = compute_voxel_grid(
         render_bbox,

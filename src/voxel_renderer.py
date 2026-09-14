@@ -24,6 +24,7 @@ Supported label modes:
         more volume-like object.
 """
 
+import gc
 import math
 import time
 
@@ -119,6 +120,265 @@ def _triangle_barycentric_grid(m, device):
     return torch.stack([a, b, c], dim=1)
 
 
+def _ply_scalar_dtype(name, endian="<"):
+    """Return a NumPy dtype for a scalar PLY property type."""
+    mapping = {
+        "char": "i1", "int8": "i1",
+        "uchar": "u1", "uint8": "u1",
+        "short": "i2", "int16": "i2",
+        "ushort": "u2", "uint16": "u2",
+        "int": "i4", "int32": "i4",
+        "uint": "u4", "uint32": "u4",
+        "float": "f4", "float32": "f4",
+        "double": "f8", "float64": "f8",
+    }
+    if name not in mapping:
+        raise ValueError(f"Unsupported PLY scalar type: {name}")
+    code = mapping[name]
+    return np.dtype(code if code.endswith("1") else endian + code)
+
+
+def _read_binary_ply_header(mesh_path):
+    """Read enough PLY metadata for memory-efficient triangle streaming."""
+    with open(mesh_path, "rb") as file:
+        first = file.readline().decode("ascii", errors="strict").strip()
+        if first != "ply":
+            raise ValueError("Not a PLY file")
+
+        fmt = None
+        elements = []
+        current = None
+
+        while True:
+            raw = file.readline()
+            if not raw:
+                raise ValueError("Unexpected end of PLY header")
+
+            line = raw.decode("ascii", errors="strict").strip()
+            if not line or line.startswith("comment") or line.startswith("obj_info"):
+                continue
+            if line == "end_header":
+                data_offset = file.tell()
+                break
+
+            parts = line.split()
+            if parts[0] == "format":
+                fmt = parts[1]
+            elif parts[0] == "element":
+                current = {
+                    "name": parts[1],
+                    "count": int(parts[2]),
+                    "properties": [],
+                }
+                elements.append(current)
+            elif parts[0] == "property" and current is not None:
+                if parts[1] == "list":
+                    current["properties"].append(
+                        ("list", parts[2], parts[3], parts[4])
+                    )
+                else:
+                    current["properties"].append(
+                        ("scalar", parts[1], parts[2])
+                    )
+
+    return fmt, elements, data_offset
+
+
+def _load_roi_geometry_from_binary_ply(
+    mesh_path,
+    roi_min,
+    roi_max,
+    face_filter_batch,
+):
+    """Stream a binary triangle PLY and return only geometry near the ROI.
+
+    Vertex data are memory-mapped and face records are read in chunks. This
+    avoids constructing a full Trimesh object for very large source meshes.
+    """
+    fmt, elements, data_offset = _read_binary_ply_header(mesh_path)
+
+    if fmt not in ("binary_little_endian", "binary_big_endian"):
+        raise ValueError("Memory-efficient PLY path requires binary PLY")
+
+    endian = "<" if fmt == "binary_little_endian" else ">"
+    vertex_el = next((e for e in elements if e["name"] == "vertex"), None)
+    face_el = next((e for e in elements if e["name"] == "face"), None)
+    if vertex_el is None or face_el is None:
+        raise ValueError("PLY must contain vertex and face elements")
+
+    # This fast path supports ordinary triangle PLY files: scalar vertex
+    # properties followed by one face list property containing vertex indices.
+    vertex_fields = []
+    for prop in vertex_el["properties"]:
+        if prop[0] != "scalar":
+            raise ValueError("List properties on PLY vertices are unsupported")
+        _, type_name, prop_name = prop
+        vertex_fields.append((prop_name, _ply_scalar_dtype(type_name, endian)))
+
+    vertex_dtype = np.dtype(vertex_fields)
+    for axis in ("x", "y", "z"):
+        if axis not in vertex_dtype.names:
+            raise ValueError(f"PLY vertex property '{axis}' is missing")
+
+    face_props = face_el["properties"]
+    if len(face_props) != 1 or face_props[0][0] != "list":
+        raise ValueError(
+            "Memory-efficient PLY path expects one face vertex-index list property"
+        )
+
+    _, count_type, index_type, _ = face_props[0]
+    count_dtype = _ply_scalar_dtype(count_type, endian)
+    index_dtype = _ply_scalar_dtype(index_type, endian)
+
+    # For triangle meshes every face record is: count (=3) + three indices.
+    face_dtype = np.dtype([
+        ("count", count_dtype),
+        ("indices", index_dtype, (3,)),
+    ])
+
+    vertex_count = int(vertex_el["count"])
+    face_count = int(face_el["count"])
+    vertex_bytes = vertex_count * vertex_dtype.itemsize
+    face_offset = data_offset + vertex_bytes
+
+    vertices = np.memmap(
+        mesh_path,
+        mode="r",
+        dtype=vertex_dtype,
+        offset=data_offset,
+        shape=(vertex_count,),
+    )
+
+    selected_face_chunks = []
+
+    with open(mesh_path, "rb") as file:
+        file.seek(face_offset)
+        remaining = face_count
+
+        while remaining > 0:
+            n = min(face_filter_batch, remaining)
+            records = np.fromfile(file, dtype=face_dtype, count=n)
+            if len(records) != n:
+                raise ValueError("Unexpected end of PLY face data")
+            if np.any(records["count"] != 3):
+                raise ValueError(
+                    "PLY contains non-triangle faces; fast ROI loader cannot stream it"
+                )
+
+            face_chunk = np.asarray(records["indices"], dtype=np.int64)
+            ids = face_chunk.reshape(-1)
+
+            # Gather only vertices referenced by this face chunk. No full Nx3
+            # floating-point vertex array is ever created.
+            tri_chunk = np.empty((n, 3, 3), dtype=np.float32)
+            tri_chunk[..., 0] = np.asarray(vertices["x"][ids]).reshape(n, 3)
+            tri_chunk[..., 1] = np.asarray(vertices["y"][ids]).reshape(n, 3)
+            tri_chunk[..., 2] = np.asarray(vertices["z"][ids]).reshape(n, 3)
+
+            tri_min = tri_chunk.min(axis=1)
+            tri_max = tri_chunk.max(axis=1)
+            keep = np.all(
+                (tri_max >= roi_min[None, :])
+                & (tri_min <= roi_max[None, :]),
+                axis=1,
+            )
+
+            if np.any(keep):
+                selected_face_chunks.append(face_chunk[keep].copy())
+
+            remaining -= n
+
+    if not selected_face_chunks:
+        del vertices
+        return None, None, face_count
+
+    selected_faces = np.concatenate(selected_face_chunks, axis=0)
+    used_vertex_ids, inverse = np.unique(
+        selected_faces.reshape(-1),
+        return_inverse=True,
+    )
+
+    selected_vertices = np.empty((len(used_vertex_ids), 3), dtype=np.float32)
+    selected_vertices[:, 0] = np.asarray(vertices["x"][used_vertex_ids], dtype=np.float32)
+    selected_vertices[:, 1] = np.asarray(vertices["y"][used_vertex_ids], dtype=np.float32)
+    selected_vertices[:, 2] = np.asarray(vertices["z"][used_vertex_ids], dtype=np.float32)
+    compact_faces = inverse.reshape(-1, 3).astype(np.int64, copy=False)
+
+    del vertices, selected_face_chunks, selected_faces, used_vertex_ids, inverse
+    gc.collect()
+
+    return selected_vertices, compact_faces, face_count
+
+
+def _load_and_crop_mesh_geometry(
+    mesh_path,
+    roi_min,
+    roi_max,
+    face_filter_batch,
+):
+    """Load only geometry intersecting the render ROI when possible."""
+    if str(mesh_path).lower().endswith(".ply"):
+        try:
+            return _load_roi_geometry_from_binary_ply(
+                mesh_path,
+                roi_min,
+                roi_max,
+                face_filter_batch,
+            )
+        except (ValueError, OSError) as exc:
+            print(
+                "Memory-efficient PLY loader unavailable for this file; "
+                f"falling back to trimesh ({exc})."
+            )
+
+    mesh = trimesh.load(mesh_path, process=False)
+    if isinstance(mesh, trimesh.Scene):
+        parts = [
+            g for g in mesh.geometry.values()
+            if isinstance(g, trimesh.Trimesh)
+        ]
+        if not parts:
+            raise ValueError(f"No mesh geometry found in scene: {mesh_path}")
+        mesh = parts[0] if len(parts) == 1 else trimesh.util.concatenate(parts)
+
+    vertices_np = np.asarray(mesh.vertices)
+    faces_np = np.asarray(mesh.faces)
+    selected_face_chunks = []
+
+    for start in range(0, len(faces_np), face_filter_batch):
+        face_chunk = faces_np[start:start + face_filter_batch]
+        tri_chunk = vertices_np[face_chunk]
+        tri_min = tri_chunk.min(axis=1)
+        tri_max = tri_chunk.max(axis=1)
+        keep = np.all(
+            (tri_max >= roi_min[None, :])
+            & (tri_min <= roi_max[None, :]),
+            axis=1,
+        )
+        if np.any(keep):
+            selected_face_chunks.append(face_chunk[keep].copy())
+
+    total_faces = len(faces_np)
+    if not selected_face_chunks:
+        del mesh, vertices_np, faces_np
+        gc.collect()
+        return None, None, total_faces
+
+    selected_faces = np.concatenate(selected_face_chunks, axis=0)
+    used_vertex_ids, inverse = np.unique(
+        selected_faces.reshape(-1), return_inverse=True
+    )
+    selected_vertices = np.asarray(
+        vertices_np[used_vertex_ids], dtype=np.float32
+    )
+    compact_faces = inverse.reshape(-1, 3).astype(np.int64, copy=False)
+
+    del mesh, vertices_np, faces_np, selected_face_chunks
+    del selected_faces, used_vertex_ids, inverse
+    gc.collect()
+    return selected_vertices, compact_faces, total_faces
+
+
 def mesh_to_density_zyx(
     mesh_path,
     origin_nm,
@@ -128,114 +388,99 @@ def mesh_to_density_zyx(
     device=None,
     batch_faces=2048,
 ):
-    """
-    Convert mesh surface triangles into a ZYX voxel density volume.
-
-    Each mesh face is sampled using barycentric points. Sampled points are
-    mapped into voxel coordinates and accumulated into a density grid.
-
-    Args:
-        mesh_path:
-            Path to input mesh.
-        origin_nm:
-            Physical XYZ origin of the voxel grid in nanometres.
-        voxel_size_nm_xyz:
-            Voxel size in XYZ order, in nanometres.
-        shape_zyx:
-            Output volume shape in [Z, Y, X] order.
-        spacing_nm:
-            Approximate surface sampling spacing in nanometres.
-        device:
-            Torch device.
-        batch_faces:
-            Number of faces processed per batch.
-
-    Returns:
-        Density volume as Torch tensor in ZYX order.
-    """
+    """Convert mesh surface triangles into a ZYX voxel density volume."""
     device = get_device(device)
 
     Z, Y, X = shape_zyx
     sx, sy, sz = voxel_size_nm_xyz
     x0, y0, z0 = origin_nm
 
-    mesh = trimesh.load(mesh_path, process=False)
+    # Crop in source-mesh space before constructing Torch tensors. The upper
+    # coordinate follows the existing renderer convention used by this file.
+    x1 = x0 + X * sx
+    y1 = y0 + Y * sy
+    z1 = z0 + Z * sz
 
-    if isinstance(mesh, trimesh.Scene):
-        mesh = trimesh.util.concatenate(
-            [g for g in mesh.geometry.values() if isinstance(g, trimesh.Trimesh)]
+    roi_min = np.array([x0 - sx, y0 - sy, z0 - sz], dtype=np.float64)
+    roi_max = np.array([x1 + sx, y1 + sy, z1 + sz], dtype=np.float64)
+    face_filter_batch = max(int(batch_faces) * 32, 65536)
+
+    selected_vertices_np, compact_faces_np, total_faces = (
+        _load_and_crop_mesh_geometry(
+            mesh_path,
+            roi_min,
+            roi_max,
+            face_filter_batch,
+        )
+    )
+
+    if selected_vertices_np is None:
+        print(
+            f"ROI face filter: kept 0 / {total_faces} faces "
+            "(no mesh surface intersects the render grid)"
+        )
+        return torch.zeros(
+            (Z, Y, X), dtype=torch.float32, device=device
         )
 
-    vertices = torch.as_tensor(
-        np.asarray(mesh.vertices, dtype=np.float32),
-        dtype=torch.float32,
-        device=device,
+    kept_faces = len(compact_faces_np)
+    print(
+        f"ROI face filter: kept {kept_faces} / {total_faces} faces "
+        f"({100.0 * kept_faces / total_faces:.4f}%)"
     )
 
-    faces = torch.as_tensor(
-        np.asarray(mesh.faces, dtype=np.int64),
-        dtype=torch.long,
-        device=device,
+    vertices = torch.as_tensor(
+        selected_vertices_np, dtype=torch.float32, device=device
     )
+    faces = torch.as_tensor(
+        compact_faces_np, dtype=torch.long, device=device
+    )
+    del selected_vertices_np, compact_faces_np
 
     rho = torch.zeros((Z, Y, X), dtype=torch.float32, device=device)
     rho_flat = rho.view(-1)
-
     tris = vertices[faces]
+    del vertices, faces
 
     v0 = tris[:, 0, :]
     v1 = tris[:, 1, :]
     v2 = tris[:, 2, :]
-
-    # Triangle surface areas determine how many samples each face receives.
-    areas = 0.5 * torch.linalg.norm(torch.cross(v1 - v0, v2 - v0, dim=1), dim=1)
-
+    areas = 0.5 * torch.linalg.norm(
+        torch.cross(v1 - v0, v2 - v0, dim=1), dim=1
+    )
     valid_faces = areas > 0
-
     if not torch.any(valid_faces):
         return rho
 
     tris = tris[valid_faces]
     areas = areas[valid_faces]
-
     n_per_face = torch.clamp(
-        torch.ceil(areas / (spacing_nm ** 2)).long(),
-        min=1,
+        torch.ceil(areas / (spacing_nm ** 2)).long(), min=1
     )
-
     m_per_face = torch.ceil(torch.sqrt(n_per_face.float())).long()
     unique_m = torch.unique(m_per_face)
 
     for m_val in unique_m.tolist():
         sel = m_per_face == m_val
         tris_m = tris[sel]
-
         if tris_m.shape[0] == 0:
             continue
 
         bary = _triangle_barycentric_grid(int(m_val), device=device)
-
         for start in range(0, tris_m.shape[0], batch_faces):
             tri_batch = tris_m[start:start + batch_faces]
-
             vb0 = tri_batch[:, 0, :]
             vb1 = tri_batch[:, 1, :]
             vb2 = tri_batch[:, 2, :]
-
             pts = (
                 bary[None, :, 0:1] * vb0[:, None, :]
                 + bary[None, :, 1:2] * vb1[:, None, :]
                 + bary[None, :, 2:3] * vb2[:, None, :]
-            )
+            ).reshape(-1, 3)
 
-            pts = pts.reshape(-1, 3)
-
-            # Convert physical XYZ coordinates to voxel indices.
             ix = torch.floor((pts[:, 0] - x0) / sx).long()
             iy = torch.floor((pts[:, 1] - y0) / sy).long()
             iz = torch.floor((pts[:, 2] - z0) / sz).long()
-
-            # Match the image coordinate convention used by saved TIFF stacks.
             iy = (Y - 1) - iy
 
             valid = (
@@ -243,22 +488,19 @@ def mesh_to_density_zyx(
                 & (iy >= 0) & (iy < Y)
                 & (iz >= 0) & (iz < Z)
             )
-
             if not torch.any(valid):
                 continue
 
             ix = ix[valid]
             iy = iy[valid]
             iz = iz[valid]
-
             flat_idx = iz * (Y * X) + iy * X + ix
-
-            vals = torch.ones(flat_idx.shape[0], dtype=torch.float32, device=device)
-
+            vals = torch.ones(
+                flat_idx.shape[0], dtype=torch.float32, device=device
+            )
             rho_flat.scatter_add_(0, flat_idx, vals)
 
     return rho
-
 
 def gaussian_kernel1d_torch(sigma, truncate=3.0, device=None, dtype=torch.float32):
     """
