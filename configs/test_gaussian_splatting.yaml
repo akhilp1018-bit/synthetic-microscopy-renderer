@@ -23,7 +23,7 @@ renderer:
   labeling_mode: membrane
   spacing_nm: 200
   batch_faces: 2048
-  pseudofill_sigma_zyx: [2.0, 2.5, 2.5]
+  pseudofill_sigma_zyx: [0, 0, 0]
   density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
   density_normalize_sum: true
 
