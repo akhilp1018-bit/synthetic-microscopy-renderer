@@ -35,6 +35,7 @@ Run all commands from the repository root.
         --samples-per-epoch 50000 \
         --validation-samples 1280 \
         --batch-size 32 \
+        --seed 0 \
         --output-dir deepd3/models/synthetic_94nm
 
 
@@ -60,8 +61,8 @@ Output
 ------
 
 deepd3/models/synthetic_94nm/
-├── synthetic_32F_94nm_best.h5
-└── synthetic_32F_94nm_training.csv
+├── synthetic_32F_94nm_seed0_best.h5
+└── synthetic_32F_94nm_seed0_training.csv
 
 
 Important
@@ -69,11 +70,13 @@ Important
 
 Training uses the train split and model selection uses the
 validation split. The test split is not used during training.
+Use different --seed values for repeated training runs.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import random
 from pathlib import Path
 
 import flammkuchen as fl
@@ -298,8 +301,11 @@ def train(
     epochs: int = 30,
     samples_per_epoch: int = 50000,
     validation_samples: int = 1280,
+    seed: int = 0,
 ):
+    # Set deterministic environment options before importing TensorFlow.
     os.environ["SM_FRAMEWORK"] = "tf.keras"
+    os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
     import tensorflow as tf
     from tensorflow.keras.callbacks import (
@@ -316,6 +322,17 @@ def train(
     from deepd3.model import DeepD3_Model
     from deepd3.training.stream import DataGeneratorStream
 
+    # Reproducible training initialization and data augmentation.
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.keras.utils.set_random_seed(seed)
+
+    # Request deterministic TensorFlow operations where supported.
+    try:
+        tf.config.experimental.enable_op_determinism()
+    except (AttributeError, RuntimeError):
+        pass
+
     output_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -323,12 +340,12 @@ def train(
 
     model_path = (
         output_dir
-        / "synthetic_32F_94nm_best.h5"
+        / f"synthetic_32F_94nm_seed{seed}_best.h5"
     )
 
     log_path = (
         output_dir
-        / "synthetic_32F_94nm_training.csv"
+        / f"synthetic_32F_94nm_seed{seed}_training.csv"
     )
 
     print()
@@ -341,6 +358,7 @@ def train(
     print(f"Training samples:    {samples_per_epoch}")
     print(f"Validation samples:  {validation_samples}")
     print(f"Epochs:              {epochs}")
+    print(f"Training seed:       {seed}")
     print(f"Resolution:          0.094 µm")
     print(f"Model output:        {model_path}")
     print(f"Training log:        {log_path}")
@@ -501,6 +519,16 @@ def main():
     )
 
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help=(
+            "Random seed for Python, NumPy, TensorFlow, "
+            "model initialization, and training augmentation."
+        ),
+    )
+
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path(
@@ -573,6 +601,7 @@ def main():
             epochs=args.epochs,
             samples_per_epoch=args.samples_per_epoch,
             validation_samples=args.validation_samples,
+            seed=args.seed,
         )
 
 

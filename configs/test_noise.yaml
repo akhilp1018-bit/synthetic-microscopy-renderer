@@ -51,33 +51,33 @@ grid:
 renderer:
   method: voxel_grid
   labeling_mode: membrane
-  spacing_nm: 200
-  batch_faces: 2048
-  pseudofill_sigma_zyx: [2.0, 2.5, 2.5]
-  density_smooth_sigma_zyx: [0.5, 0.8, 0.8]
-  density_normalize_sum: true
-
-
+  voxel_grid:
+    spacing_nm: 200
+    batch_faces: 2048
+    labeling_mode: membrane
+    filled_closing_iterations: 1
 splatting:
   spacing_nm: 200
-  sigma_zyx: [0.5, 0.8, 0.8]
+  sigma_tangent_nm: 100.0
+  sigma_normal_nm: 50.0
   apply_psf: true
   seed: 0
   points_per_batch: 50000
 
 
+  sigma_tangent_nm: 100.0
+  sigma_normal_nm: 50.0
 psf:
   mode: gaussian_2p
   path: psfs/psf_bornwolf_488nm_NA1_xy94nm_z500nm_65x65x13.tif
-  two_photon_like: true
   shape_zyx: [13, 65, 65]
-  lambda_nm: 488.0
   na: 1.0
   refractive_index: 1.33
   sigma_scale_xy: 1.0
   sigma_scale_z: 1.0
 
 
+  excitation_lambda_nm: 920.0
 noise:
   enabled: true
   mode: poisson_gaussian

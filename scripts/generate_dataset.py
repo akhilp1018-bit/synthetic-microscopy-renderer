@@ -44,6 +44,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import torch
 
 
@@ -104,25 +105,9 @@ def load_psf(config, grid_cfg, device):
     cfg = config["psf"]
     mode = cfg.get("mode", "gaussian_2p")
 
-    if mode in (
-        "bornwolf",
-        "bornwolf_1p",
-        "bornwolf_2p",
-    ):
-        two_photon = cfg.get(
-            "two_photon_like",
-            False,
-        )
-
-        if mode == "bornwolf_1p":
-            two_photon = False
-
-        elif mode == "bornwolf_2p":
-            two_photon = True
-
+    if mode == "bornwolf":
         psf = load_psf_zyx(
             str(resolve_path(cfg["path"])),
-            two_photon_like=two_photon,
             verbose=True,
         )
 
@@ -135,8 +120,11 @@ def load_psf(config, grid_cfg, device):
                     [13, 65, 65],
                 )
             ),
-            lambda_nm=float(
-                cfg.get("lambda_nm", 488.0)
+            excitation_lambda_nm=float(
+                cfg.get(
+                    "excitation_lambda_nm",
+                    920.0,
+                )
             ),
             na=float(
                 cfg.get("na", 1.0)
@@ -159,7 +147,6 @@ def load_psf(config, grid_cfg, device):
             sigma_scale_z=float(
                 cfg.get("sigma_scale_z", 1.0)
             ),
-            two_photon_like=True,
             verbose=True,
         )
 
@@ -377,6 +364,7 @@ def main():
 
     dataset_cfg = config["dataset"]
     generation_cfg = config["generation"]
+    master_seed = int(generation_cfg.get("seed", 0))
     grid_cfg = config["grid"]
     output_cfg = config["output"]
     mask_cfg = config["masks"]
@@ -603,6 +591,11 @@ def main():
 
             global_index += 1
 
+            # Each instance receives a deterministic seed derived from the
+            # dataset seed, giving varied but reproducible augmentations/noise.
+            instance_seed = master_seed + global_index
+            rng = np.random.default_rng(instance_seed)
+
             instance_name = (
                 f"instance_{index:06d}"
             )
@@ -654,6 +647,7 @@ def main():
                             "random_orientation",
                             True,
                         ),
+                        rng=rng,
                     )
                 )
 
@@ -674,7 +668,8 @@ def main():
 
                 center_xyz = (
                     select_random_geometry_center(
-                        dendrite
+                        dendrite,
+                        rng=rng,
                     )
                 )
 
@@ -842,10 +837,18 @@ def main():
                 # Add microscopy noise using PyTorch
                 # -----------------------------------------------------
 
+                noise_config = {
+                    **config,
+                    "noise": {
+                        **config.get("noise", {}),
+                        "seed": instance_seed,
+                    },
+                }
+
                 noisy = (
                     apply_noise_if_enabled(
                         clean.clone(),
-                        config,
+                        noise_config,
                     )
                 )
 
@@ -915,6 +918,12 @@ def main():
                         "source_sample":
                             sample["name"],
 
+                        "master_seed":
+                            master_seed,
+
+                        "instance_seed":
+                            instance_seed,
+
                         "source_spine_count":
                             len(sample["spines"]),
 
@@ -946,8 +955,10 @@ def main():
                         "psf":
                             config["psf"],
 
-                        "noise":
-                            config["noise"],
+                        "noise": {
+                            **config["noise"],
+                            "seed": instance_seed,
+                        },
 
                         "masks":
                             config["masks"],

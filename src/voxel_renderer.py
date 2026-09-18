@@ -7,7 +7,7 @@ applies PSF convolution to create a synthetic microscopy stack.
 Pipeline:
     mesh surface
     -> voxel density volume
-    -> optional density smoothing / pseudofill
+    -> optional enclosed-volume filling
     -> PSF convolution
     -> rendered image volume
 
@@ -18,10 +18,10 @@ Coordinate convention:
 
 Supported label modes:
     membrane:
-        Surface-based density from mesh faces.
-    pseudofilled:
-        Surface density followed by stronger smoothing to create a thicker,
-        more volume-like object.
+        Surface-area-based density rasterized from mesh faces.
+    filled:
+        Filled occupancy derived from the voxelized mesh surface. Small
+        voxel-scale gaps can be closed before enclosed regions are filled.
 """
 
 import gc
@@ -32,6 +32,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import trimesh
+from scipy.ndimage import binary_closing, binary_fill_holes
 
 
 def get_device(device=None):
@@ -94,31 +95,60 @@ def focal_stack_from_density(rho_zyx, psf_zyx, device=None):
     return out[0, 0]
 
 
-def _triangle_barycentric_grid(m, device):
+def _triangle_surface_samples(tri, spacing_nm, device):
     """
-    Create barycentric sampling coordinates for one triangle.
+    Create deterministic samples over one triangle.
 
-    The parameter m controls the sampling density. Higher m creates more
-    barycentric points inside the triangle.
+    Samples distribute the triangle's physical membrane area across the voxel
+    grid. Their weights sum to the physical area of the triangle.
     """
-    if m <= 0:
-        return torch.tensor([[0.0, 0.0, 1.0]], dtype=torch.float32, device=device)
+    v0 = tri[0]
+    v1 = tri[1]
+    v2 = tri[2]
 
-    rows = []
+    area = 0.5 * torch.linalg.norm(
+        torch.cross(v1 - v0, v2 - v0, dim=0)
+    )
 
-    for i in range(m + 1):
-        j = torch.arange(m + 1 - i, device=device, dtype=torch.float32)
-        ii = torch.full_like(j, float(i))
-        rows.append(torch.stack([ii, j], dim=1))
+    if float(area) <= 0.0:
+        return None, None
 
-    ij = torch.cat(rows, dim=0)
+    n_samples = max(
+        1,
+        int(torch.ceil(area / (spacing_nm ** 2)).item()),
+    )
 
-    a = ij[:, 0] / m
-    b = ij[:, 1] / m
-    c = 1.0 - a - b
+    sample_index = torch.arange(
+        n_samples,
+        dtype=torch.float32,
+        device=device,
+    )
 
-    return torch.stack([a, b, c], dim=1)
+    # Deterministic low-discrepancy samples over triangle area.
+    u = (sample_index + 0.5) / float(n_samples)
+    v = torch.frac(
+        (sample_index + 0.5) * 0.6180339887498949
+    )
 
+    sqrt_u = torch.sqrt(u)
+    bary0 = 1.0 - sqrt_u
+    bary1 = sqrt_u * (1.0 - v)
+    bary2 = sqrt_u * v
+
+    points = (
+        bary0[:, None] * v0[None, :]
+        + bary1[:, None] * v1[None, :]
+        + bary2[:, None] * v2[None, :]
+    )
+
+    weights = torch.full(
+        (n_samples,),
+        float(area.item()) / float(n_samples),
+        dtype=torch.float32,
+        device=device,
+    )
+
+    return points, weights
 
 def _ply_scalar_dtype(name, endian="<"):
     """Return a NumPy dtype for a scalar PLY property type."""
@@ -388,15 +418,19 @@ def mesh_to_density_zyx(
     device=None,
     batch_faces=2048,
 ):
-    """Convert mesh surface triangles into a ZYX voxel density volume."""
+    """
+    Rasterize mesh triangles into a ZYX membrane-density volume.
+
+    Each valid triangle contributes its physical surface area to the voxel
+    grid. Surface samples determine where that area is deposited, so total
+    membrane density is not determined by mesh vertex count.
+    """
     device = get_device(device)
 
     Z, Y, X = shape_zyx
     sx, sy, sz = voxel_size_nm_xyz
     x0, y0, z0 = origin_nm
 
-    # Crop in source-mesh space before constructing Torch tensors. The upper
-    # coordinate follows the existing renderer convention used by this file.
     x1 = x0 + X * sx
     y1 = y0 + Y * sy
     z1 = z0 + Z * sz
@@ -430,153 +464,78 @@ def mesh_to_density_zyx(
     )
 
     vertices = torch.as_tensor(
-        selected_vertices_np, dtype=torch.float32, device=device
+        selected_vertices_np,
+        dtype=torch.float32,
+        device=device,
     )
     faces = torch.as_tensor(
-        compact_faces_np, dtype=torch.long, device=device
+        compact_faces_np,
+        dtype=torch.long,
+        device=device,
     )
     del selected_vertices_np, compact_faces_np
 
-    rho = torch.zeros((Z, Y, X), dtype=torch.float32, device=device)
+    rho = torch.zeros(
+        (Z, Y, X),
+        dtype=torch.float32,
+        device=device,
+    )
     rho_flat = rho.view(-1)
+
     tris = vertices[faces]
     del vertices, faces
 
-    v0 = tris[:, 0, :]
-    v1 = tris[:, 1, :]
-    v2 = tris[:, 2, :]
-    areas = 0.5 * torch.linalg.norm(
-        torch.cross(v1 - v0, v2 - v0, dim=1), dim=1
-    )
-    valid_faces = areas > 0
-    if not torch.any(valid_faces):
-        return rho
+    for start in range(0, tris.shape[0], batch_faces):
+        tri_batch = tris[start:start + batch_faces]
 
-    tris = tris[valid_faces]
-    areas = areas[valid_faces]
-    n_per_face = torch.clamp(
-        torch.ceil(areas / (spacing_nm ** 2)).long(), min=1
-    )
-    m_per_face = torch.ceil(torch.sqrt(n_per_face.float())).long()
-    unique_m = torch.unique(m_per_face)
+        for tri in tri_batch:
+            points, weights = _triangle_surface_samples(
+                tri,
+                spacing_nm=spacing_nm,
+                device=device,
+            )
 
-    for m_val in unique_m.tolist():
-        sel = m_per_face == m_val
-        tris_m = tris[sel]
-        if tris_m.shape[0] == 0:
-            continue
+            if points is None:
+                continue
 
-        bary = _triangle_barycentric_grid(int(m_val), device=device)
-        for start in range(0, tris_m.shape[0], batch_faces):
-            tri_batch = tris_m[start:start + batch_faces]
-            vb0 = tri_batch[:, 0, :]
-            vb1 = tri_batch[:, 1, :]
-            vb2 = tri_batch[:, 2, :]
-            pts = (
-                bary[None, :, 0:1] * vb0[:, None, :]
-                + bary[None, :, 1:2] * vb1[:, None, :]
-                + bary[None, :, 2:3] * vb2[:, None, :]
-            ).reshape(-1, 3)
+            ix = torch.floor(
+                (points[:, 0] - x0) / sx
+            ).long()
+            iy_source = torch.floor(
+                (points[:, 1] - y0) / sy
+            ).long()
+            iz = torch.floor(
+                (points[:, 2] - z0) / sz
+            ).long()
 
-            ix = torch.floor((pts[:, 0] - x0) / sx).long()
-            iy = torch.floor((pts[:, 1] - y0) / sy).long()
-            iz = torch.floor((pts[:, 2] - z0) / sz).long()
-            iy = (Y - 1) - iy
+            iy = (Y - 1) - iy_source
 
             valid = (
                 (ix >= 0) & (ix < X)
                 & (iy >= 0) & (iy < Y)
                 & (iz >= 0) & (iz < Z)
             )
+
             if not torch.any(valid):
                 continue
 
             ix = ix[valid]
             iy = iy[valid]
             iz = iz[valid]
+            weights_valid = weights[valid]
+
             flat_idx = iz * (Y * X) + iy * X + ix
-            vals = torch.ones(
-                flat_idx.shape[0], dtype=torch.float32, device=device
+
+            rho_flat.scatter_add_(
+                0,
+                flat_idx,
+                weights_valid,
             )
-            rho_flat.scatter_add_(0, flat_idx, vals)
 
     return rho
 
-def gaussian_kernel1d_torch(sigma, truncate=3.0, device=None, dtype=torch.float32):
-    """
-    Create a normalized 1D Gaussian kernel as a Torch tensor.
-    """
-    device = get_device(device)
 
-    if sigma <= 0:
-        return torch.tensor([1.0], dtype=dtype, device=device)
-
-    radius = int(math.ceil(truncate * sigma))
-
-    x = torch.arange(-radius, radius + 1, dtype=dtype, device=device)
-
-    k = torch.exp(-(x ** 2) / (2 * sigma * sigma))
-    k = k / k.sum()
-
-    return k
-
-
-def smooth_density_zyx(
-    rho_zyx,
-    sigma_zyx=(0.6, 0.8, 0.8),
-    normalize_sum=True,
-    device=None,
-):
-    """
-    Smooth a ZYX density volume using separable Gaussian convolution.
-
-    Args:
-        rho_zyx:
-            Input density volume in ZYX order.
-        sigma_zyx:
-            Gaussian sigma in voxel units, ordered [Z, Y, X].
-        normalize_sum:
-            If True, preserve total density sum after smoothing.
-        device:
-            Torch device.
-
-    Returns:
-        Smoothed density volume in ZYX order.
-    """
-    device = get_device(device)
-
-    rho_zyx = as_torch(rho_zyx, device=device, dtype=torch.float32)
-
-    s0 = rho_zyx.sum()
-
-    sz, sy, sx = sigma_zyx
-
-    kz = gaussian_kernel1d_torch(sz, device=device)
-    ky = gaussian_kernel1d_torch(sy, device=device)
-    kx = gaussian_kernel1d_torch(sx, device=device)
-
-    x = rho_zyx.unsqueeze(0).unsqueeze(0)
-
-    wz = kz.view(1, 1, -1, 1, 1)
-    x = F.conv3d(x, wz, padding=(kz.numel() // 2, 0, 0))
-
-    wy = ky.view(1, 1, 1, -1, 1)
-    x = F.conv3d(x, wy, padding=(0, ky.numel() // 2, 0))
-
-    wx = kx.view(1, 1, 1, 1, -1)
-    x = F.conv3d(x, wx, padding=(0, 0, kx.numel() // 2))
-
-    rho_s = x[0, 0]
-
-    if normalize_sum:
-        s1 = rho_s.sum()
-        if float(s1) > 0.0:
-            rho_s = rho_s * (s0 / s1)
-
-    return rho_s
-
-
-def mesh_pseudofilled_to_density_zyx(
+def mesh_to_filled_density_zyx(
     mesh_path,
     origin_nm,
     voxel_size_nm_xyz,
@@ -584,15 +543,19 @@ def mesh_pseudofilled_to_density_zyx(
     spacing_nm=200.0,
     device=None,
     batch_faces=2048,
-    pseudofill_sigma_zyx=(2.0, 2.5, 2.5),
+    closing_iterations=1,
 ):
     """
-    Create a pseudofilled density volume from a mesh.
+    Create a filled occupancy volume from the rasterized mesh surface.
 
-    First a membrane/surface density is created. Then stronger smoothing is
-    applied to make the object thicker and more volume-like.
+    The mesh surface is first rasterized into the voxel grid. A controlled
+    binary closing can bridge small voxel-scale gaps, after which enclosed
+    regions are filled. This is intended for meshes that may contain small
+    discretization gaps; large open boundaries are not repaired automatically.
     """
-    rho = mesh_to_density_zyx(
+    device = get_device(device)
+
+    surface_density = mesh_to_density_zyx(
         mesh_path=mesh_path,
         origin_nm=origin_nm,
         voxel_size_nm_xyz=voxel_size_nm_xyz,
@@ -602,15 +565,45 @@ def mesh_pseudofilled_to_density_zyx(
         batch_faces=batch_faces,
     )
 
-    rho = smooth_density_zyx(
-        rho,
-        sigma_zyx=pseudofill_sigma_zyx,
-        normalize_sum=True,
-        device=device,
+    surface = (
+        surface_density.detach().cpu().numpy() > 0
     )
 
-    return rho
+    if int(closing_iterations) > 0:
+        structure = np.ones((3, 3, 3), dtype=bool)
+        surface = binary_closing(
+            surface,
+            structure=structure,
+            iterations=int(closing_iterations),
+        )
 
+    filled = binary_fill_holes(surface)
+    interior = np.logical_and(filled, np.logical_not(surface))
+
+    # Include both the enclosed interior and its boundary so the filled
+    # object represents the complete occupied neuronal volume.
+    filled_volume = np.logical_or(interior, surface).astype(np.float32)
+
+    surface_voxels = int(surface.sum())
+    filled_voxels = int(filled_volume.sum())
+
+    print(
+        f"Filled voxelization: surface={surface_voxels} voxels, "
+        f"filled={filled_voxels} voxels"
+    )
+
+    if filled_voxels <= surface_voxels:
+        print(
+            "Warning: no enclosed interior was recovered. "
+            "The mesh may contain an opening larger than the configured "
+            "voxel-scale closing operation."
+        )
+
+    return torch.as_tensor(
+        filled_volume,
+        dtype=torch.float32,
+        device=device,
+    )
 
 def ensure_psf_odd_xy(psf_zyx, renormalize=False, device=None):
     """
@@ -653,15 +646,17 @@ def build_density_for_mesh(
     shape_zyx,
     device,
     batch_faces=2048,
-    pseudofill_sigma_zyx=(2.0, 2.5, 2.5),
-    density_smooth_sigma_zyx=(0.6, 0.8, 0.8),
-    density_normalize_sum=True,
+    filled_closing_iterations=1,
 ):
     """
-    Build a density volume for one mesh using the selected label mode.
+    Build fluorescence density for one mesh.
 
-    This function handles both membrane and pseudofilled density generation,
-    then applies the final small density smoothing step.
+    membrane:
+        Physical mesh surface area is rasterized into the voxel grid.
+
+    filled:
+        The rasterized surface is closed at voxel scale and enclosed interior
+        voxels are filled to create a filled occupancy volume.
     """
     print(f"\n{'=' * 50}")
     print(f"Building density: {tag}")
@@ -685,8 +680,8 @@ def build_density_for_mesh(
             batch_faces=batch_faces,
         )
 
-    elif labeling_mode == "pseudofilled":
-        rho = mesh_pseudofilled_to_density_zyx(
+    elif labeling_mode == "filled":
+        rho = mesh_to_filled_density_zyx(
             mesh_path=mesh_path,
             origin_nm=origin_nm,
             voxel_size_nm_xyz=voxel_size_nm_xyz,
@@ -694,44 +689,23 @@ def build_density_for_mesh(
             spacing_nm=spacing_nm,
             device=device,
             batch_faces=batch_faces,
-            pseudofill_sigma_zyx=pseudofill_sigma_zyx,
+            closing_iterations=filled_closing_iterations,
         )
 
     else:
         raise ValueError(
-            "labeling_mode must be 'membrane' or 'pseudofilled'"
+            "labeling_mode must be 'membrane' or 'filled'"
         )
 
     if device.type == "cuda":
         torch.cuda.synchronize()
 
     print(
-        f"[{tag}] density time: {time.perf_counter() - t0:.1f}s "
-        f"sum={float(rho.sum()):.2f} max={float(rho.max()):.4f}"
-    )
-
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-    t0 = time.perf_counter()
-
-    rho = smooth_density_zyx(
-        rho,
-        sigma_zyx=density_smooth_sigma_zyx,
-        normalize_sum=density_normalize_sum,
-        device=device,
-    )
-
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-    print(
-        f"[{tag}] smooth time : {time.perf_counter() - t0:.1f}s "
+        f"[{tag}] density time: {time.perf_counter() - t0:.6f}s "
         f"sum={float(rho.sum()):.2f} max={float(rho.max()):.4f}"
     )
 
     return rho
-
 
 def render_density(rho, psf_eff, tag, device):
     """
@@ -748,7 +722,7 @@ def render_density(rho, psf_eff, tag, device):
         torch.cuda.synchronize()
 
     print(
-        f"[{tag}] render time: {time.perf_counter() - t0:.1f}s "
+        f"[{tag}] render time: {time.perf_counter() - t0:.6f}s "
         f"min={float(vol.min()):.4f} max={float(vol.max()):.4f}"
     )
 
@@ -765,12 +739,15 @@ def render_single_mesh_voxel(
     """
     Render a single mesh with the voxel-grid renderer.
 
-    The renderer configuration is read from config["renderer"].
+    The renderer configuration is read from config["renderer"]["voxel_grid"].
 
     Returns:
         Rendered image volume in ZYX order.
     """
-    renderer_cfg = config["renderer"]
+    renderer_cfg = config["renderer"].get(
+        "voxel_grid",
+        {},
+    )
 
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -789,9 +766,9 @@ def render_single_mesh_voxel(
         shape_zyx=grid["shape_zyx"],
         device=device,
         batch_faces=int(renderer_cfg.get("batch_faces", 2048)),
-        pseudofill_sigma_zyx=tuple(renderer_cfg.get("pseudofill_sigma_zyx", [2.0, 2.5, 2.5])),
-        density_smooth_sigma_zyx=tuple(renderer_cfg.get("density_smooth_sigma_zyx", [0.6, 0.8, 0.8])),
-        density_normalize_sum=bool(renderer_cfg.get("density_normalize_sum", True)),
+        filled_closing_iterations=int(
+            renderer_cfg.get("filled_closing_iterations", 1)
+        ),
     )
 
     vol = render_density(rho, psf_eff, tag="single_mesh", device=device)
@@ -801,7 +778,7 @@ def render_single_mesh_voxel(
 
     print(
         f"[single_mesh] total renderer time: "
-        f"{time.perf_counter() - total_start:.1f}s"
+        f"{time.perf_counter() - total_start:.6f}s"
     )
 
     if device.type == "cuda":

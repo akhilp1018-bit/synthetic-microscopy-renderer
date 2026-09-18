@@ -2,10 +2,9 @@
 Point spread function utilities.
 
 This module handles:
-    - loading PSF TIFF files
+    - loading Born-Wolf PSF TIFF files
     - converting PSF arrays to ZYX order
-    - optionally converting a 1-photon PSF to a simple 2-photon-like PSF
-    - generating an analytical Gaussian PSF
+    - generating an analytical Gaussian two-photon excitation PSF
 
 Coordinate convention:
     PSF arrays are returned in ZYX order:
@@ -17,19 +16,7 @@ import tifffile
 
 
 def _move_psf_to_zyx(arr: np.ndarray) -> np.ndarray:
-    """
-    Move a 3D PSF array to ZYX order.
-
-    Some PSF files may not be saved with Z as the first axis. This function
-    assumes the Z axis is the smallest dimension and moves it to axis 0.
-
-    Args:
-        arr:
-            Input 3D PSF array.
-
-    Returns:
-        PSF array in ZYX order.
-    """
+    """Move a 3D PSF array to ZYX order."""
     if arr.ndim != 3:
         raise ValueError(f"PSF must be 3D, got shape {arr.shape}")
 
@@ -43,26 +30,14 @@ def _move_psf_to_zyx(arr: np.ndarray) -> np.ndarray:
 
 def load_psf_zyx(
     path: str,
-    two_photon_like: bool = False,
     clip_negative: bool = True,
     verbose: bool = True,
 ) -> np.ndarray:
     """
-    Load a PSF TIFF file and return a normalized ZYX PSF.
+    Load a Born-Wolf PSF TIFF file and return a normalized ZYX PSF.
 
-    Args:
-        path:
-            Path to PSF TIFF file.
-        two_photon_like:
-            If True, square the PSF before normalization. This is a simple
-            approximation for a two-photon-like excitation profile.
-        clip_negative:
-            If True, negative values are clipped to zero.
-        verbose:
-            If True, print PSF information.
-
-    Returns:
-        Normalized PSF as float32 NumPy array in ZYX order.
+    The loaded PSF is used directly after optional negative-value clipping
+    and normalization.
     """
     arr = tifffile.imread(path).astype(np.float32)
     arr = _move_psf_to_zyx(arr)
@@ -70,53 +45,55 @@ def load_psf_zyx(
     if clip_negative:
         arr = np.maximum(arr, 0.0)
 
-    if two_photon_like:
-        arr = arr ** 2
-
     arr /= arr.sum() + 1e-12
 
     if verbose:
-        print("Loaded PSF:")
-        print(f"  path            = {path}")
-        print(f"  shape ZYX       = {arr.shape}")
-        print(f"  two_photon_like = {two_photon_like}")
-        print(f"  sum             = {arr.sum():.6f}")
-        print(f"  max             = {arr.max():.6e}")
+        print("Loaded Born-Wolf PSF:")
+        print(f"  path      = {path}")
+        print(f"  shape ZYX = {arr.shape}")
+        print(f"  sum       = {arr.sum():.6f}")
+        print(f"  max       = {arr.max():.6e}")
 
     return arr.astype(np.float32)
 
 
 def fwhm_to_sigma(fwhm: float) -> float:
-    """
-    Convert full width at half maximum to Gaussian sigma.
-    """
+    """Convert full width at half maximum to Gaussian sigma."""
     return fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 
 def make_gaussian_psf_matched_zyx(
     shape_zyx=(13, 65, 65),
-    lambda_nm=488.0,
+    excitation_lambda_nm=920.0,
     na=1.0,
     n=1.33,
     xy_um_per_px=0.094,
     z_step_um=0.5,
     sigma_scale_xy=1.0,
     sigma_scale_z=1.0,
-    two_photon_like=True,
     verbose=True,
 ) -> np.ndarray:
     """
-    Create an analytical Gaussian PSF matched to the image sampling.
+    Create an analytical Gaussian approximation of a two-photon excitation PSF.
 
-    The Gaussian width is estimated from simple diffraction-based FWHM
-    approximations and converted into pixel units using the configured XY and Z
-    sampling.
+    The effective lateral and axial FWHM are estimated directly from the
+    two-photon excitation wavelength. The resulting Gaussian is not squared
+    again after construction.
+
+    The approximations used are:
+
+        lateral FWHM:
+            0.541 * lambda / (sqrt(2) * NA**0.91)
+
+        axial FWHM:
+            (0.886 * lambda / sqrt(2))
+            / (n - sqrt(n**2 - NA**2))
 
     Args:
         shape_zyx:
             Output PSF shape in [Z, Y, X] order.
-        lambda_nm:
-            Excitation/emission wavelength parameter in nanometres.
+        excitation_lambda_nm:
+            Two-photon excitation wavelength in nanometres.
         na:
             Numerical aperture.
         n:
@@ -126,24 +103,40 @@ def make_gaussian_psf_matched_zyx(
         z_step_um:
             Z slice spacing in micrometres.
         sigma_scale_xy:
-            Optional scale factor for lateral PSF width.
+            Optional scale factor for lateral Gaussian sigma.
         sigma_scale_z:
-            Optional scale factor for axial PSF width.
-        two_photon_like:
-            If True, square the Gaussian PSF before normalization.
+            Optional scale factor for axial Gaussian sigma.
         verbose:
-            If True, print PSF information.
+            If True, print PSF parameters.
 
     Returns:
         Normalized Gaussian PSF as float32 NumPy array in ZYX order.
     """
     pz, py, px = map(int, shape_zyx)
 
-    lam_um = lambda_nm * 1e-3
+    if excitation_lambda_nm <= 0:
+        raise ValueError("excitation_lambda_nm must be positive.")
+    if na <= 0:
+        raise ValueError("na must be positive.")
+    if n <= 0:
+        raise ValueError("refractive index n must be positive.")
+    if na >= n:
+        raise ValueError(
+            "For this axial PSF approximation, NA must be smaller than "
+            "the refractive index n."
+        )
 
-    # Simple diffraction-based FWHM approximations.
-    fwhm_xy_um = 0.61 * lam_um / na
-    fwhm_z_um = (2.0 * n * lam_um) / (na ** 2)
+    lam_um = float(excitation_lambda_nm) * 1e-3
+
+    fwhm_xy_um = (
+        0.541 * lam_um
+        / (np.sqrt(2.0) * (na ** 0.91))
+    )
+
+    fwhm_z_um = (
+        (0.886 * lam_um / np.sqrt(2.0))
+        / (n - np.sqrt(n**2 - na**2))
+    )
 
     sigma_xy_um = fwhm_to_sigma(fwhm_xy_um)
     sigma_z_um = fwhm_to_sigma(fwhm_z_um)
@@ -153,14 +146,17 @@ def make_gaussian_psf_matched_zyx(
     sigma_z_px = (sigma_z_um / z_step_um) * sigma_scale_z
 
     if verbose:
-        print("Gaussian PSF matched:")
-        print(f"  shape ZYX       = {shape_zyx}")
-        print(f"  lambda_nm       = {lambda_nm}")
-        print(f"  NA              = {na}")
-        print(f"  n               = {n}")
-        print(f"  xy_um_per_px    = {xy_um_per_px}")
-        print(f"  z_step_um       = {z_step_um}")
-        print(f"  two_photon_like = {two_photon_like}")
+        print("Gaussian two-photon PSF:")
+        print(f"  shape ZYX             = {shape_zyx}")
+        print(f"  excitation_lambda_nm  = {excitation_lambda_nm}")
+        print(f"  NA                    = {na}")
+        print(f"  n                     = {n}")
+        print(f"  lateral FWHM um       = {fwhm_xy_um:.4f}")
+        print(f"  axial FWHM um         = {fwhm_z_um:.4f}")
+        print(f"  sigma XY um           = {sigma_xy_um:.4f}")
+        print(f"  sigma Z um            = {sigma_z_um:.4f}")
+        print(f"  xy_um_per_px          = {xy_um_per_px}")
+        print(f"  z_step_um             = {z_step_um}")
 
     z = np.arange(pz, dtype=np.float32) - (pz // 2)
     y = np.arange(py, dtype=np.float32) - (py // 2)
@@ -175,9 +171,6 @@ def make_gaussian_psf_matched_zyx(
             + xx**2 / (2.0 * sigma_x_px**2)
         )
     ).astype(np.float32)
-
-    if two_photon_like:
-        psf = psf ** 2
 
     psf /= psf.sum() + 1e-12
 

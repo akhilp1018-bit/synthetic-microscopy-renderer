@@ -66,6 +66,7 @@ from >=1 to >=7 raters using one-to-one matching within 1000 nm.
 """
 from pathlib import Path
 import argparse
+import json
 
 import numpy as np
 import pandas as pd
@@ -114,52 +115,46 @@ DEFAULT_OUTPUT_DIR = (
 
 
 # =========================================================
-# Frozen segmentation thresholds
-# =========================================================
-#
-# Selected previously on SYNTHETIC VALIDATION data.
-#
-# IMPORTANT:
-# We do NOT tune these thresholds on the real benchmark.
+# Frozen thresholds selected on synthetic validation
 # =========================================================
 
-SEGMENTATION_THRESHOLDS = {
-
-    "real_32F_94nm": {
-        "dendrite": 0.01,
-        "spine": 0.25,
-    },
-
-    "synthetic_32F_94nm": {
-        "dendrite": 0.01,
-        "spine": 0.54,
-    },
-
-}
+DEFAULT_THRESHOLDS = Path(
+    "outputs/synthetic_dataset_v1/deepd3_evaluation/validation/selected_thresholds.json"
+)
 
 
-# =========================================================
-# Frozen spine-detection thresholds
-# =========================================================
-#
-# Selected previously on SYNTHETIC VALIDATION data.
-#
-# Real-trained 32F_94nm:
-#     detection threshold = 0.29
-#
-# Synthetic-trained:
-#     detection threshold = 0.60
-#
-# These are frozen before real benchmark evaluation.
-# =========================================================
+def load_selected_thresholds(path):
+    """
+    Load segmentation and spine-detection thresholds selected previously
+    on the synthetic validation dataset.
+    """
+    with open(path, "r", encoding="utf-8") as file:
+        selected = json.load(file)
 
-DETECTION_THRESHOLDS = {
+    required_models = [
+        "32F_94nm",
+        "synthetic_32F_94nm",
+    ]
 
-    "real_32F_94nm": 0.29,
+    required_keys = [
+        "dendrite_segmentation",
+        "spine_segmentation",
+        "spine_detection",
+    ]
 
-    "synthetic_32F_94nm": 0.60,
+    for model_name in required_models:
+        if model_name not in selected:
+            raise KeyError(
+                f"Missing threshold entry '{model_name}' in {path}"
+            )
 
-}
+        for key in required_keys:
+            if key not in selected[model_name]:
+                raise KeyError(
+                    f"Missing threshold '{key}' for '{model_name}' in {path}"
+                )
+
+    return selected
 
 
 # =========================================================
@@ -772,10 +767,12 @@ def check_shapes(
 
 def evaluate_segmentation_model(
     model_name,
+    threshold_key,
     prediction_path,
     image_shape,
     spine_gt,
     dendrite_gt,
+    selected_thresholds,
 ):
 
     print("\n\n########################################")
@@ -808,19 +805,17 @@ def evaluate_segmentation_model(
             f"benchmark {image_shape}"
         )
 
-    thresholds = (
-        SEGMENTATION_THRESHOLDS[
-            model_name
-        ]
-    )
+    thresholds = selected_thresholds[
+        threshold_key
+    ]
 
-    dend_thr = (
-        thresholds["dendrite"]
-    )
+    dend_thr = thresholds[
+        "dendrite_segmentation"
+    ]
 
-    spine_thr = (
-        thresholds["spine"]
-    )
+    spine_thr = thresholds[
+        "spine_segmentation"
+    ]
 
     print("\nFrozen thresholds")
     print("-----------------")
@@ -1409,8 +1404,10 @@ def detection_metrics(
 
 def evaluate_spine_detection(
     model_name,
+    threshold_key,
     prediction_path,
     cluster_df,
+    selected_thresholds,
 ):
 
     print("\n\n########################################")
@@ -1421,11 +1418,11 @@ def evaluate_spine_detection(
         prediction_path
     )
 
-    threshold = (
-        DETECTION_THRESHOLDS[
-            model_name
-        ]
-    )
+    threshold = selected_thresholds[
+        threshold_key
+    ][
+        "spine_detection"
+    ]
 
     print(
         "\nFrozen detection threshold:",
@@ -1708,6 +1705,21 @@ def main():
 
     )
 
+    parser.add_argument(
+
+        "--thresholds",
+
+        type=Path,
+
+        default=DEFAULT_THRESHOLDS,
+
+        help=(
+            "JSON file containing thresholds selected on "
+            "the synthetic validation dataset."
+        ),
+
+    )
+
     args = (
         parser.parse_args()
     )
@@ -1758,6 +1770,8 @@ def main():
 
         args.synthetic_prediction,
 
+        args.thresholds,
+
     ]
 
     for path in required_files:
@@ -1767,6 +1781,15 @@ def main():
             raise FileNotFoundError(
                 path
             )
+
+    selected_thresholds = load_selected_thresholds(
+        args.thresholds
+    )
+
+    print(
+        "Frozen thresholds loaded from:",
+        args.thresholds,
+    )
 
     # =====================================================
     # Load benchmark image
@@ -1839,6 +1862,9 @@ def main():
             model_name=
                 "real_32F_94nm",
 
+            threshold_key=
+                "32F_94nm",
+
             prediction_path=
                 args.real_prediction,
 
@@ -1851,6 +1877,9 @@ def main():
             dendrite_gt=
                 dendrite_gt,
 
+            selected_thresholds=
+                selected_thresholds,
+
         )
 
     )
@@ -1860,6 +1889,9 @@ def main():
         evaluate_segmentation_model(
 
             model_name=
+                "synthetic_32F_94nm",
+
+            threshold_key=
                 "synthetic_32F_94nm",
 
             prediction_path=
@@ -1873,6 +1905,9 @@ def main():
 
             dendrite_gt=
                 dendrite_gt,
+
+            selected_thresholds=
+                selected_thresholds,
 
         )
 
@@ -1895,11 +1930,17 @@ def main():
             model_name=
                 "real_32F_94nm",
 
+            threshold_key=
+                "32F_94nm",
+
             prediction_path=
                 args.real_prediction,
 
             cluster_df=
                 cluster_df,
+
+            selected_thresholds=
+                selected_thresholds,
 
         )
 
@@ -1912,11 +1953,17 @@ def main():
             model_name=
                 "synthetic_32F_94nm",
 
+            threshold_key=
+                "synthetic_32F_94nm",
+
             prediction_path=
                 args.synthetic_prediction,
 
             cluster_df=
                 cluster_df,
+
+            selected_thresholds=
+                selected_thresholds,
 
         )
 

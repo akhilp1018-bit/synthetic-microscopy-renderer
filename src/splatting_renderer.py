@@ -12,7 +12,11 @@ Coordinate convention:
         [Z slices, Y pixels, X pixels]
 
 Note:
-    Gaussian splatting  supports membrane-style labelling only.
+    Gaussian splatting supports membrane-style labelling only.
+
+    Each sampled surface point retains the normal of its source triangle.
+    The local Gaussian is anisotropic: its narrow axis follows the membrane
+    normal and its tangential extent lies along the membrane surface.
 """
 
 import gc
@@ -29,7 +33,7 @@ from src.voxel_renderer import (
 )
 
 
-def _load_cropped_mesh_to_grid(mesh_path, grid, sigma_zyx):
+def _load_cropped_mesh_to_grid(mesh_path, grid, sigma_nm):
     """
     Load only mesh geometry that can contribute to the splatting volume.
 
@@ -48,11 +52,14 @@ def _load_cropped_mesh_to_grid(mesh_path, grid, sigma_zyx):
     sx, sy, sz = voxel_size
     x0, y0, z0 = origin
 
-    sigma_z, sigma_y, sigma_x = [float(v) for v in sigma_zyx]
+    sigma_nm = float(sigma_nm)
+    if sigma_nm <= 0:
+        raise ValueError("Gaussian sigma must be positive.")
 
-    radius_x = max(1, int(math.ceil(3.0 * sigma_x)))
-    radius_y = max(1, int(math.ceil(3.0 * sigma_y)))
-    radius_z = max(1, int(math.ceil(3.0 * sigma_z)))
+    # Convert the physical support radius independently along each voxel axis.
+    radius_x = max(1, int(math.ceil(3.0 * sigma_nm / sx)))
+    radius_y = max(1, int(math.ceil(3.0 * sigma_nm / sy)))
+    radius_z = max(1, int(math.ceil(3.0 * sigma_nm / sz)))
 
     roi_min = np.array(
         [
@@ -124,103 +131,162 @@ def _sample_surface_points(mesh, spacing_nm=100.0, seed=0):
         seed=seed,
     )
 
-    return points.astype(np.float32)
+    # Retain the source-face normal so each Gaussian can be oriented relative
+    # to the local membrane surface.
+    normals = np.asarray(mesh.face_normals[face_idx], dtype=np.float32)
+
+    return points.astype(np.float32), normals
 
 
 def _splat_points_to_volume(
     points_xyz_nm,
+    normals_xyz,
     grid,
-    sigma_zyx=(1.0, 2.0, 2.0),
+    sigma_tangent_nm=100.0,
+    sigma_normal_nm=50.0,
     device=None,
     points_per_batch=50000,
 ):
     """
-    Accumulate Gaussian splats from sampled mesh points into a ZYX volume.
+    Accumulate normal-oriented anisotropic Gaussian splats into a ZYX volume.
 
-    Each point is converted from physical XYZ coordinates into continuous voxel
-    coordinates. A local Gaussian kernel is then added around the point.
-
-    Args:
-        points_xyz_nm:
-            Sampled surface points in XYZ nanometre coordinates.
-        grid:
-            Dictionary containing origin_nm, voxel_size_nm_xyz, and shape_zyx.
-        sigma_zyx:
-            Gaussian splat width in voxel units, ordered as [Z, Y, X].
-        device:
-            Torch device.
-        points_per_batch:
-            Number of sampled points processed per batch.
-
-    Returns:
-        Torch tensor volume in ZYX order.
+    Gaussian widths and orientation are defined in physical nanometre space.
+    The Gaussian is broader within the local membrane plane and narrower along
+    the physical surface normal. The physical displacement from each sampled
+    surface point is evaluated at voxel centres, so anisotropic voxel spacing
+    does not distort the Gaussian orientation or covariance.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    shape_zyx = tuple(grid["shape_zyx"])
-    Z, Y, X = shape_zyx
+    Z, Y, X = tuple(grid["shape_zyx"])
 
     origin_nm = np.asarray(grid["origin_nm"], dtype=np.float32)
-    voxel_size_nm_xyz = np.asarray(grid["voxel_size_nm_xyz"], dtype=np.float32)
+    voxel_size_nm_xyz = np.asarray(
+        grid["voxel_size_nm_xyz"],
+        dtype=np.float32,
+    )
 
-    sigma_z, sigma_y, sigma_x = [float(v) for v in sigma_zyx]
+    sigma_tangent_nm = float(sigma_tangent_nm)
+    sigma_normal_nm = float(sigma_normal_nm)
 
-    # Use a local kernel with radius 3 sigma in each direction.
-    radius_z = max(1, int(math.ceil(3.0 * sigma_z)))
-    radius_y = max(1, int(math.ceil(3.0 * sigma_y)))
-    radius_x = max(1, int(math.ceil(3.0 * sigma_x)))
+    if sigma_tangent_nm <= 0 or sigma_normal_nm <= 0:
+        raise ValueError("Gaussian sigma values must be positive.")
+
+    sx, sy, sz = [float(v) for v in voxel_size_nm_xyz]
+    max_sigma_nm = max(sigma_tangent_nm, sigma_normal_nm)
+
+    radius_x = max(1, int(math.ceil(3.0 * max_sigma_nm / sx)))
+    radius_y = max(1, int(math.ceil(3.0 * max_sigma_nm / sy)))
+    radius_z = max(1, int(math.ceil(3.0 * max_sigma_nm / sz)))
 
     dz = torch.arange(-radius_z, radius_z + 1, device=device)
     dy = torch.arange(-radius_y, radius_y + 1, device=device)
     dx = torch.arange(-radius_x, radius_x + 1, device=device)
 
     zz, yy, xx = torch.meshgrid(dz, dy, dx, indexing="ij")
-
     offsets = torch.stack(
         [zz.reshape(-1), yy.reshape(-1), xx.reshape(-1)],
         dim=1,
     ).long()
 
-    print(f"Splat kernel radius ZYX : ({radius_z}, {radius_y}, {radius_x})")
+    print(
+        f"Splat kernel radius ZYX : "
+        f"({radius_z}, {radius_y}, {radius_x})"
+    )
     print(f"Splat kernel voxels     : {offsets.shape[0]}")
 
-    vol_flat = torch.zeros(Z * Y * X, dtype=torch.float32, device=device)
+    vol_flat = torch.zeros(
+        Z * Y * X,
+        dtype=torch.float32,
+        device=device,
+    )
 
-    points = torch.as_tensor(points_xyz_nm, dtype=torch.float32, device=device)
+    points = torch.as_tensor(
+        points_xyz_nm,
+        dtype=torch.float32,
+        device=device,
+    )
+    normals = torch.as_tensor(
+        normals_xyz,
+        dtype=torch.float32,
+        device=device,
+    )
 
-    origin = torch.as_tensor(origin_nm, dtype=torch.float32, device=device)
+    origin = torch.as_tensor(
+        origin_nm,
+        dtype=torch.float32,
+        device=device,
+    )
     voxel_size = torch.as_tensor(
         voxel_size_nm_xyz,
         dtype=torch.float32,
         device=device,
     )
 
-    # Convert physical mesh coordinates XYZ into continuous voxel coordinates.
+    # Continuous voxel coordinates are used only to locate nearby grid cells.
     points_vox_xyz = (points - origin) / voxel_size
 
-    # Output arrays are ZYX. The Y axis is flipped here to match the orientation
-    # used by the voxel-grid renderer and saved TIFF stacks.
+    source_y = points_vox_xyz[:, 1]
+    source_y_floor = torch.floor(source_y)
+
     points_vox_z = points_vox_xyz[:, 2]
-    points_vox_y = (Y - 1) - points_vox_xyz[:, 1]
     points_vox_x = points_vox_xyz[:, 0]
 
-    points_vox_zyx = torch.stack(
+    centers_vox_zyx = torch.stack(
         [
-            points_vox_z,
-            points_vox_y,
-            points_vox_x,
+            torch.floor(points_vox_z),
+            (Y - 1) - source_y_floor,
+            torch.floor(points_vox_x),
+        ],
+        dim=1,
+    ).long()
+
+    # Convert physical XYZ normals to physical output ZYX coordinates.
+    # Y changes sign because the output volume uses the flipped Y convention.
+    normals_zyx = torch.stack(
+        [
+            normals[:, 2],
+            -normals[:, 1],
+            normals[:, 0],
+        ],
+        dim=1,
+    )
+    normals_zyx = normals_zyx / torch.clamp(
+        torch.linalg.norm(normals_zyx, dim=1, keepdim=True),
+        min=1e-8,
+    )
+
+    # Physical sampled-point coordinates in output ZYX convention.
+    # The Y coordinate is expressed relative to the top of the output grid.
+    x0, y0, z0 = origin
+    points_phys_zyx = torch.stack(
+        [
+            points[:, 2] - z0,
+            (y0 + Y * voxel_size[1]) - points[:, 1],
+            points[:, 0] - x0,
         ],
         dim=1,
     )
 
-    n_points = points_vox_zyx.shape[0]
+    spacing_zyx = torch.as_tensor(
+        [sz, sy, sx],
+        dtype=torch.float32,
+        device=device,
+    )
+
+    n_points = points.shape[0]
+
+    inv_tangent2 = 1.0 / (sigma_tangent_nm ** 2)
+    inv_normal2 = 1.0 / (sigma_normal_nm ** 2)
 
     for start in range(0, n_points, points_per_batch):
         end = min(start + points_per_batch, n_points)
-        p = points_vox_zyx[start:end]
 
-        center = torch.floor(p).long()
+        p_phys = points_phys_zyx[start:end]
+        n = normals_zyx[start:end]
+        center = centers_vox_zyx[start:end]
+
         loc = center[:, None, :] + offsets[None, :, :]
 
         z = loc[:, :, 0]
@@ -228,42 +294,49 @@ def _splat_points_to_volume(
         x = loc[:, :, 2]
 
         valid = (
-            (z >= 0) & (z < Z) &
-            (y >= 0) & (y < Y) &
-            (x >= 0) & (x < X)
+            (z >= 0) & (z < Z)
+            & (y >= 0) & (y < Y)
+            & (x >= 0) & (x < X)
         )
 
-        # Distance from kernel voxel locations to the continuous point location.
-        dist = loc.float() - p[:, None, :]
+        # Evaluate the Gaussian at physical voxel-centre coordinates.
+        loc_phys = (loc.float() + 0.5) * spacing_zyx[None, None, :]
+        dist_nm = loc_phys - p_phys[:, None, :]
 
-        weights = torch.exp(
-            -0.5 * (
-                (dist[:, :, 0] / sigma_z) ** 2 +
-                (dist[:, :, 1] / sigma_y) ** 2 +
-                (dist[:, :, 2] / sigma_x) ** 2
-            )
+        normal_distance_nm = torch.sum(
+            dist_nm * n[:, None, :],
+            dim=2,
+        )
+        dist_squared_nm2 = torch.sum(dist_nm * dist_nm, dim=2)
+        tangent_squared_nm2 = torch.clamp(
+            dist_squared_nm2 - normal_distance_nm ** 2,
+            min=0.0,
         )
 
+        exponent = (
+            tangent_squared_nm2 * inv_tangent2
+            + normal_distance_nm ** 2 * inv_normal2
+        )
+
+        weights = torch.exp(-0.5 * exponent)
         weights = weights * valid.float()
 
         flat_idx = z * (Y * X) + y * X + x
         flat_idx = flat_idx[valid]
         weights = weights[valid]
 
-        # Accumulate all Gaussian contributions into the flat output volume.
         vol_flat.scatter_add_(0, flat_idx, weights)
 
         print(f"  splatted points {start} - {end} / {n_points}")
 
     vol = vol_flat.reshape(Z, Y, X)
 
-    # Normalize total intensity to the number of sampled points.
+    # Preserve a comparable total contribution across sampling densities.
     total = vol.sum()
     if total > 0:
         vol = vol / total * float(n_points)
 
     return vol
-
 
 def render_single_mesh_splatting(
     mesh_path,
@@ -278,8 +351,8 @@ def render_single_mesh_splatting(
 
     Pipeline:
         mesh surface
-        -> sampled surface points
-        -> Gaussian kernel accumulation
+        -> sampled surface points with mesh normals
+        -> normal-oriented anisotropic Gaussian accumulation
         -> optional PSF convolution
 
     Returns:
@@ -296,7 +369,8 @@ def render_single_mesh_splatting(
         )
 
     spacing_nm = float(splat_cfg.get("spacing_nm", renderer_cfg.get("spacing_nm", 100)))
-    sigma_zyx = tuple(splat_cfg.get("sigma_zyx", [1.0, 2.0, 2.0]))
+    sigma_tangent_nm = float(splat_cfg.get("sigma_tangent_nm", 100.0))
+    sigma_normal_nm = float(splat_cfg.get("sigma_normal_nm", 50.0))
     apply_psf = bool(splat_cfg.get("apply_psf", True))
     seed = int(splat_cfg.get("seed", 0))
     points_per_batch = int(splat_cfg.get("points_per_batch", 50000))
@@ -306,7 +380,8 @@ def render_single_mesh_splatting(
     print(f"Mesh: {mesh_path}")
     print(f"labeling_mode={labeling_mode}")
     print(f"spacing_nm={spacing_nm}")
-    print(f"sigma_zyx={sigma_zyx}")
+    print(f"sigma_tangent_nm={sigma_tangent_nm}")
+    print(f"sigma_normal_nm={sigma_normal_nm}")
     print(f"apply_psf={apply_psf}")
     print(f"{'=' * 50}")
 
@@ -321,10 +396,10 @@ def render_single_mesh_splatting(
     mesh = _load_cropped_mesh_to_grid(
         mesh_path=mesh_path,
         grid=grid,
-        sigma_zyx=sigma_zyx,
+        sigma_nm=max(sigma_tangent_nm, sigma_normal_nm),
     )
     mesh_load_time = time.perf_counter() - mesh_load_start
-    print(f"[{tag}] mesh crop/load time: {mesh_load_time:.1f}s")
+    print(f"[{tag}] mesh crop/load time: {mesh_load_time:.6f}s")
 
     if mesh is None:
         return torch.zeros(
@@ -335,7 +410,7 @@ def render_single_mesh_splatting(
 
     sampling_start = time.perf_counter()
 
-    points_xyz_nm = _sample_surface_points(
+    points_xyz_nm, normals_xyz = _sample_surface_points(
         mesh,
         spacing_nm=spacing_nm,
         seed=seed,
@@ -345,7 +420,7 @@ def render_single_mesh_splatting(
     gc.collect()
 
     sampling_time = time.perf_counter() - sampling_start
-    print(f"[{tag}] sampling time  : {sampling_time:.1f}s")
+    print(f"[{tag}] sampling time  : {sampling_time:.6f}s")
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -354,8 +429,10 @@ def render_single_mesh_splatting(
 
     vol = _splat_points_to_volume(
         points_xyz_nm=points_xyz_nm,
+        normals_xyz=normals_xyz,
         grid=grid,
-        sigma_zyx=sigma_zyx,
+        sigma_tangent_nm=sigma_tangent_nm,
+        sigma_normal_nm=sigma_normal_nm,
         device=device,
         points_per_batch=points_per_batch,
     )
@@ -364,7 +441,7 @@ def render_single_mesh_splatting(
         torch.cuda.synchronize()
 
     splatting_time = time.perf_counter() - splatting_start
-    print(f"[{tag}] splatting time : {splatting_time:.1f}s")
+    print(f"[{tag}] splatting time : {splatting_time:.6f}s")
 
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -382,14 +459,14 @@ def render_single_mesh_splatting(
             torch.cuda.synchronize()
 
         psf_time = time.perf_counter() - psf_start
-        print(f"[{tag}] PSF time       : {psf_time:.1f}s")
+        print(f"[{tag}] PSF time       : {psf_time:.6f}s")
 
     if device.type == "cuda":
         torch.cuda.synchronize()
 
     print(
         f"[{tag}] total renderer time: "
-        f"{time.perf_counter() - total_start:.1f}s"
+        f"{time.perf_counter() - total_start:.6f}s"
     )
 
     if device.type == "cuda":

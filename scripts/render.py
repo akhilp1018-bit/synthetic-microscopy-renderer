@@ -70,37 +70,28 @@ def load_effective_psf(config, grid_cfg, device):
             Name of the PSF mode used.
     """
     psf_cfg = config["psf"]
-    psf_mode = psf_cfg.get("mode", "bornwolf_2p")
+    psf_mode = psf_cfg.get("mode", "bornwolf")
 
-    if psf_mode in ["bornwolf", "bornwolf_1p", "bornwolf_2p"]:
+    if psf_mode == "bornwolf":
         psf_path = resolve_path(psf_cfg["path"])
-
-        two_photon_like = bool(psf_cfg.get("two_photon_like", False))
-
-        # Force correct behaviour from the selected named PSF mode.
-        if psf_mode == "bornwolf_1p":
-            two_photon_like = False
-
-        if psf_mode == "bornwolf_2p":
-            two_photon_like = True
 
         psf_eff = load_psf_zyx(
             str(psf_path),
-            two_photon_like=two_photon_like,
             verbose=True,
         )
 
     elif psf_mode == "gaussian_2p":
         psf_eff = make_gaussian_psf_matched_zyx(
             shape_zyx=tuple(psf_cfg.get("shape_zyx", [13, 65, 65])),
-            lambda_nm=float(psf_cfg.get("lambda_nm", 488.0)),
+            excitation_lambda_nm=float(
+                psf_cfg.get("excitation_lambda_nm", 920.0)
+            ),
             na=float(psf_cfg.get("na", 1.0)),
             n=float(psf_cfg.get("refractive_index", 1.33)),
             xy_um_per_px=float(grid_cfg["xy_um_per_px"]),
             z_step_um=float(grid_cfg["z_step_um"]),
             sigma_scale_xy=float(psf_cfg.get("sigma_scale_xy", 1.0)),
             sigma_scale_z=float(psf_cfg.get("sigma_scale_z", 1.0)),
-            two_photon_like=True,
             verbose=True,
         )
 
@@ -254,15 +245,23 @@ def get_oriented_roi_local_bounds_nm(grid_cfg, renderer_cfg, config):
     method = renderer_cfg.get("method", "voxel_grid")
 
     if method == "gaussian_splatting":
-        sigma_z, sigma_y, sigma_x = [
-            float(v)
-            for v in config.get("splatting", {}).get(
-                "sigma_zyx", [1.0, 2.0, 2.0]
-            )
-        ]
-        margin_x = max(1.0, 3.0 * sigma_x) * sx
-        margin_y = max(1.0, 3.0 * sigma_y) * sy
-        margin_z = max(1.0, 3.0 * sigma_z) * sz
+        splat_cfg = config.get("splatting", {})
+        sigma_tangent_vox = float(
+            splat_cfg.get("sigma_tangent_vox", 1.0)
+        )
+        sigma_normal_vox = float(
+            splat_cfg.get("sigma_normal_vox", 0.5)
+        )
+        sigma_max_vox = max(
+            sigma_tangent_vox,
+            sigma_normal_vox,
+        )
+
+        # Use the largest splat width to keep the oriented ROI pre-crop
+        # conservative for every possible membrane orientation.
+        margin_x = max(1.0, 3.0 * sigma_max_vox) * sx
+        margin_y = max(1.0, 3.0 * sigma_max_vox) * sy
+        margin_z = max(1.0, 3.0 * sigma_max_vox) * sz
     else:
         margin_x = sx
         margin_y = sy
@@ -313,6 +312,15 @@ def main():
 
     input_mode = input_cfg.get("mode", "single_mesh")
     method = renderer_cfg.get("method", "voxel_grid")
+
+    if method == "voxel_grid":
+        labeling_mode = renderer_cfg.get(
+            "voxel_grid", {}
+        ).get("labeling_mode", "membrane")
+    else:
+        labeling_mode = renderer_cfg.get(
+            "labeling_mode", "membrane"
+        )
 
     output_dir = resolve_path(output_cfg["output_dir"])
     output_name = output_cfg.get("output_name", "render")
@@ -515,7 +523,7 @@ def main():
     # Render mode: single mesh
     # ------------------------------------------------------------
     if input_mode == "single_mesh":
-        vol = render_one_mesh(
+        vol_clean = render_one_mesh(
             sim_mesh_path,
             grid,
             psf_eff,
@@ -524,27 +532,27 @@ def main():
             tag="single_mesh",
         )
 
-        # Noise can be disabled for clean data generation or enabled for noisy simulations.
+        # Ground truth is derived from the clean signal so it is independent
+        # of the configured microscopy noise realization.
+        mask = make_object_mask_from_volume(
+            vol_clean,
+            rel_threshold=float(mask_cfg.get("object_rel_threshold", 0.1)),
+        )
+
         noise_start = time.perf_counter()
 
-        vol = apply_noise_if_enabled(vol, config)
+        vol = apply_noise_if_enabled(vol_clean, config)
 
         noise_time = time.perf_counter() - noise_start
 
         if config.get("noise", {}).get("enabled", False):
-            print(f"[single_mesh] noise time: {noise_time:.3f}s")
+            print(f"[single_mesh] noise time: {noise_time:.6f}s")
 
         image_path = save_volume(
             vol,
             output_dir,
             f"{output_name}_{method}_{psf_mode}_image",
             grid_cfg,
-        )
-
-        # For single_mesh mode, only one binary object mask is produced.
-        mask = make_object_mask_from_volume(
-            vol,
-            rel_threshold=float(mask_cfg.get("object_rel_threshold", 0.1)),
         )
 
         mask_path = save_mask(
@@ -557,7 +565,7 @@ def main():
         metadata = {
             "input_mode": input_mode,
             "renderer": method,
-            "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
+            "labeling_mode": labeling_mode,
             "psf_mode": psf_mode,
             "splatting_apply_psf": bool(
                 config.get("splatting", {}).get("apply_psf", False)
@@ -618,7 +626,7 @@ def main():
         noise_time = time.perf_counter() - noise_start
 
         if config.get("noise", {}).get("enabled", False):
-            print(f"[labelled_components] noise time: {noise_time:.3f}s")
+            print(f"[labelled_components] noise time: {noise_time:.6f}s")
 
         image_path = save_volume(
             vol_all,
@@ -720,7 +728,7 @@ def main():
         metadata = {
             "input_mode": input_mode,
             "renderer": method,
-            "labeling_mode": renderer_cfg.get("labeling_mode", "membrane"),
+            "labeling_mode": labeling_mode,
             "psf_mode": psf_mode,
             "splatting_apply_psf": bool(
                 config.get("splatting", {}).get("apply_psf", False)

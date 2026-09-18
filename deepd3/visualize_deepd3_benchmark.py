@@ -49,6 +49,7 @@ benchmark evaluation are used for visualization.
 """
 
 from pathlib import Path
+import json
 
 import numpy as np
 import tifffile
@@ -90,16 +91,66 @@ OUTPUT_DIR = (
     / "qualitative"
 )
 
+THRESHOLDS_PATH = Path(
+    "outputs/synthetic_dataset_v1/"
+    "deepd3_evaluation/validation/"
+    "selected_thresholds.json"
+)
+
 
 # =========================================================
 # Frozen segmentation thresholds
 # =========================================================
 
-REAL_DENDRITE_THRESHOLD = 0.01
-REAL_SPINE_THRESHOLD = 0.25
+def load_frozen_thresholds(path: Path):
 
-SYNTH_DENDRITE_THRESHOLD = 0.01
-SYNTH_SPINE_THRESHOLD = 0.54
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Frozen threshold file not found: {path}\n"
+            "Run the synthetic validation evaluation first."
+        )
+
+    with path.open("r", encoding="utf-8") as f:
+        thresholds = json.load(f)
+
+    required_models = [
+        "32F_94nm",
+        "synthetic_32F_94nm",
+    ]
+
+    for model_name in required_models:
+        if model_name not in thresholds:
+            raise KeyError(
+                f"Missing model '{model_name}' in {path}"
+            )
+
+        for key in [
+            "dendrite_segmentation",
+            "spine_segmentation",
+        ]:
+            if key not in thresholds[model_name]:
+                raise KeyError(
+                    f"Missing threshold '{key}' for "
+                    f"'{model_name}' in {path}"
+                )
+
+    real = thresholds["32F_94nm"]
+    synthetic = thresholds["synthetic_32F_94nm"]
+
+    return {
+        "real_dendrite": float(
+            real["dendrite_segmentation"]
+        ),
+        "real_spine": float(
+            real["spine_segmentation"]
+        ),
+        "synthetic_dendrite": float(
+            synthetic["dendrite_segmentation"]
+        ),
+        "synthetic_spine": float(
+            synthetic["spine_segmentation"]
+        ),
+    }
 
 
 # =========================================================
@@ -399,6 +450,22 @@ def main():
         exist_ok=True,
     )
 
+    thresholds = load_frozen_thresholds(
+        THRESHOLDS_PATH
+    )
+
+    print("Frozen thresholds:")
+    print(
+        "  Real-trained:      "
+        f"dendrite={thresholds['real_dendrite']:.4f}, "
+        f"spine={thresholds['real_spine']:.4f}"
+    )
+    print(
+        "  Synthetic-trained: "
+        f"dendrite={thresholds['synthetic_dendrite']:.4f}, "
+        f"spine={thresholds['synthetic_spine']:.4f}"
+    )
+
     # -----------------------------------------------------
     # Load benchmark
     # -----------------------------------------------------
@@ -440,22 +507,22 @@ def main():
 
     real_spine_mask = (
         real_spine_prob
-        >= REAL_SPINE_THRESHOLD
+        >= thresholds["real_spine"]
     )
 
     synth_spine_mask = (
         synth_spine_prob
-        >= SYNTH_SPINE_THRESHOLD
+        >= thresholds["synthetic_spine"]
     )
 
     real_dend_mask = (
         real_dend_prob
-        >= REAL_DENDRITE_THRESHOLD
+        >= thresholds["real_dendrite"]
     )
 
     synth_dend_mask = (
         synth_dend_prob
-        >= SYNTH_DENDRITE_THRESHOLD
+        >= thresholds["synthetic_dendrite"]
     )
 
     # -----------------------------------------------------

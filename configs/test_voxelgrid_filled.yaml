@@ -5,7 +5,7 @@ input:
   recenter: false
 
 output:
-  output_dir: outputs/render_comparison/voxel_grid
+  output_dir: outputs/render_comparison/voxel_grid_filled
   output_name: mesh001_voxel_grid
 
 grid:
@@ -22,7 +22,7 @@ renderer:
   method: voxel_grid
 
   voxel_grid:
-    labeling_mode: membrane    #filled
+    labeling_mode: filled    #filled
     spacing_nm: 200
     batch_faces: 2048
     filled_closing_iterations: 1

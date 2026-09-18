@@ -1,128 +1,88 @@
 # Synthetic Microscopy Renderer
 
-This repository renders synthetic microscopy image stacks from 3D mesh geometry.
+This repository generates synthetic microscopy image stacks from 3D neuronal mesh geometry.
 
-The goal is to generate synthetic two-photon-like image stacks together with ground-truth masks and metadata. These outputs can be used for DeepD3 spine and dendrite segmentation experiments.
+The pipeline converts labelled or unlabelled mesh data into microscopy-like TIFF stacks using configurable rendering, point spread function (PSF), and noise models. For labelled neuronal meshes, corresponding dendrite and spine ground-truth masks can also be generated.
 
-## Basic idea
+The synthetic data can be used for training and evaluating segmentation methods such as DeepD3.
 
-```text
-3D mesh + YAML configuration
-            |
-            v
-TIFF image stack + ground-truth mask(s) + metadata
-```
-
-## Repository contents
+## Pipeline
 
 ```text
-configs/      YAML configuration files
-scripts/      Command-line scripts
-src/          Renderer source code
-psfs/         Point spread function files
-data/         Mesh data; not stored in GitHub
-outputs/      Generated results; not stored in GitHub
+3D neuronal mesh
+       |
+       v
+Fluorescence-density rendering
+       |
+       v
+PSF convolution
+       |
+       v
+Microscopy noise
+       |
+       v
+TIFF image stack + ground-truth masks + metadata
 ```
 
-## Example data
+Two rendering approaches are available:
 
-Large mesh files are not stored directly in GitHub.
+- Voxel-based fluorescence rendering
+- Gaussian surface-splatting fluorescence rendering
 
-Download the mesh data from FAUbox:
+The voxel renderer supports membrane and filled-volume labelling. Gaussian splatting represents fluorescence using normal-oriented Gaussian surface primitives.
+
+## Repository structure
+
+```text
+configs/     YAML configuration files
+data/        Mesh data (not stored in GitHub)
+gui/         Graphical user interface
+psfs/        Point spread function files
+scripts/     Rendering and dataset-generation scripts
+src/         Renderer source code
+outputs/     Generated results (not stored in GitHub)
+```
+
+## Mesh data
+
+The mesh dataset is not stored directly in this repository because of its size.
+
+Download link:
 
 > FAUbox download link will be added here.
 
-After downloading, place the `data` folder in the repository root. The expected structure is:
+After downloading, place the `data` directory in the repository root:
 
 ```text
 synthetic-microscopy-renderer/
 ├── configs/
 ├── data/
 │   ├── mesh_001/
-│   │   └── mesh_001.ply
 │   ├── sample_001/
 │   ├── sample_002/
 │   ├── sample_003/
 │   └── sample_004/
+├── gui/
 ├── outputs/
 ├── psfs/
 ├── scripts/
 └── src/
 ```
 
-The PSF files are already included in the repository under:
+The required PSF files are included under `psfs/`.
 
-```text
-psfs/
-```
+## Installation on Windows
 
-## Installation
+Python 3.12 is recommended.
 
-PyTorch is not pinned in `requirements.txt` because the correct installation depends on the operating system, Python version, GPU, and CUDA setup.
-
-Use the official PyTorch installation selector to obtain the correct command for your computer:
-
-[PyTorch installation selector](https://pytorch.org/get-started/locally/)
-
-Install PyTorch first, then install the remaining project dependencies.
-
-### Standard Linux or macOS installation
-
-Clone the repository and enter its root directory:
-
-```bash
-git clone https://github.com/akhilp1018-bit/synthetic-microscopy-renderer.git
-cd synthetic-microscopy-renderer
-```
-Python 3.12.10 is needed
-
-Create and activate a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Upgrade pip:
-
-```bash
-python -m pip install --upgrade pip
-```
-
-Install the appropriate PyTorch build using the command provided by the official PyTorch installation selector.
-
-For example, a CPU-only installation may use:
-
-```bash
-python -m pip install torch torchvision
-```
-
-For a CUDA-enabled installation, select the correct operating system, package manager, Python version, and CUDA version on the PyTorch website, then run the generated command.
-
-Install the remaining project dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Verify the installation:
-
-```bash
-python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
-```
-
-On a computer without a compatible NVIDIA GPU, the renderer can run on the CPU, although large rendering tasks may be slow and require substantial memory.
-
-### Windows installation
-
-Clone the repository and enter its root directory:
+Clone the repository and enter the project directory:
 
 ```powershell
 git clone https://github.com/akhilp1018-bit/synthetic-microscopy-renderer.git
 cd synthetic-microscopy-renderer
 ```
 
-Create and activate the environment in PowerShell:
+Create and activate a virtual environment:
 
 ```powershell
 py -m venv .venv
@@ -135,204 +95,94 @@ Upgrade pip:
 python -m pip install --upgrade pip
 ```
 
-Use the official PyTorch installation selector and choose Windows, Pip, Python, and the CUDA version supported by your system, or CPU if no compatible GPU is available.
+### Install PyTorch
 
-Then run the generated PyTorch installation command.
+PyTorch is not pinned in `requirements.txt` because the appropriate installation depends on the available hardware and CUDA version.
 
-Example only:
+Use the official PyTorch installation selector:
+
+https://pytorch.org/get-started/locally/
+
+For a CPU installation, for example:
 
 ```powershell
 python -m pip install torch torchvision
 ```
 
-Install the remaining project dependencies:
+For an NVIDIA GPU, use the installation command recommended by PyTorch for the CUDA configuration of the system.
+
+Then install the remaining dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Verify the installation:
+Verify the PyTorch installation:
 
 ```powershell
-python -c "import torch, numpy, trimesh, tifffile, yaml, matplotlib; print('Installation successful'); print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
+python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None')"
 ```
 
-If `CUDA available` is `False` on a computer with an NVIDIA GPU, check that the installed PyTorch build matches the system's supported CUDA configuration.
+The renderer automatically uses CUDA when a compatible GPU and CUDA-enabled PyTorch installation are available; otherwise it runs on the CPU.
 
-## Run an example
+## Run the renderer
 
-From the repository root, run:
-
-```bash
-PYTHONPATH=. python scripts/render.py --config configs/default.yaml
-```
-
-On Windows PowerShell, use:
+From the repository root in PowerShell:
 
 ```powershell
 $env:PYTHONPATH="."
 python scripts/render.py --config configs/default.yaml
 ```
 
-The rendering settings, input paths, output paths, microscope model, sampling resolution, and other parameters are defined in the YAML configuration file.
+Rendering parameters such as the input mesh, output resolution, renderer, PSF, noise model, and output directory are controlled through YAML configuration files.
 
-## Optional: FAU HPC installation
+To use another configuration:
 
-The FAU HPC can be used for larger rendering tasks that require a GPU or more memory.
-
-The cluster-provided PyTorch module is recommended because it is configured for the HPC environment and available GPUs.
-
-Load the module:
-
-```bash
-module purge
-module load python/pytorch2.6py3.12
+```powershell
+python scripts/render.py --config configs/<configuration-name>.yaml
 ```
 
-Create a virtual environment that can access the module-provided PyTorch installation:
+## Input modes
 
-```bash
-python -m venv --system-site-packages .venv-hpc
-source .venv-hpc/bin/activate
-```
+### Single mesh
 
-Upgrade pip and install the remaining project dependencies:
+`single_mesh` renders one mesh and generates a foreground object mask.
 
-```bash
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Do not install another PyTorch version inside this environment unless the cluster module is intentionally being replaced.
-
-Verify GPU support on a GPU node:
-
-```bash
-python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA build:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'None'); print('Architectures:', torch.cuda.get_arch_list())"
-```
-
-For a Tesla V100 GPU, the supported architecture list should include:
+Typical outputs are:
 
 ```text
-sm_70
-```
-
-### Request an FAU HPC GPU node
-
-An example interactive allocation is:
-
-```bash
-salloc --partition=v100 --gres=gpu:v100:1 --time=02:00:00 --cpus-per-task=8
-```
-
-After the allocation starts, load the module and activate the environment:
-
-```bash
-module purge
-module load python/pytorch2.6py3.12
-source .venv-hpc/bin/activate
-```
-
-Run the renderer from the repository root:
-
-```bash
-PYTHONPATH=. python scripts/render.py --config configs/default.yaml
-```
-
-The HPC instructions are optional. The renderer can also be used on a normal workstation or laptop, depending on the size of the selected mesh and rendering configuration.
-
-## Expected outputs
-
-The renderer writes its results to the output folder defined in the configuration file.
-
-### Unlabelled single-mesh mode
-
-Typical outputs for `single_mesh` mode are:
-
-```text
-zstack_*_image.tif
-zstack_*_object_mask.tif
+*_image.tif
+*_object_mask.tif
 metadata_*.json
 ```
 
-The `object_mask` is a binary foreground/background mask generated from the complete unlabelled mesh:
+### Labelled components
 
-- foreground: voxels occupied by the mesh
-- background: empty voxels
+`labelled_components` renders labelled dendrite and spine components and generates separate ground-truth masks.
 
-It does not distinguish dendrites from spines.
-
-### Labelled-components mode
-
-Typical outputs for `labelled_components` mode are:
+Typical outputs are:
 
 ```text
-zstack_*_image.tif
-zstack_*_dendrite_mask.tif
-zstack_*_spine_mask.tif
+*_image.tif
+*_dendrite_mask.tif
+*_spine_mask.tif
 metadata_*.json
 ```
 
-In this mode, the renderer generates separate ground-truth masks for dendrites and spines in the same coordinate system as the rendered image.
-
-Depending on the configuration, the renderer may also create preview images, overlays, or additional intermediate outputs.
-
-## Configuration
-
-The default example configuration is:
-
-```text
-configs/default.yaml
-```
-
-To run a different experiment, edit an existing YAML file or create a new configuration and pass its path with `--config`:
-
-```bash
-PYTHONPATH=. python scripts/render.py --config configs/<configuration-name>.yaml
-```
-
-## Graphical user interface
-
-An interactive GUI is available for loading meshes, selecting rendering
-subvolumes, exporting configurations, and launching renders.
-
-Run it from the repository root:
-
-```bash
-python gui/app.py
-```
-
-See `gui/README.md` for detailed GUI usage instructions.
+Ground-truth masks are generated from the clean rendered signal before microscopy noise is applied.
 
 ## Synthetic dataset generation
 
-A separate dataset-generation script is available for creating multiple
-synthetic training instances from labelled dendrite and spine meshes.
+Synthetic datasets can be generated from the labelled neuronal meshes using:
 
-The dataset generator supports random mesh orientations and random
-locations along the dendrite while using the same rendering components
-as the main renderer.
-
-The dataset configuration is:
-
-```text
-configs/dataset_v1.yaml
+```powershell
+$env:PYTHONPATH="."
+python scripts/generate_dataset.py --config configs/dataset_v1.yaml
 ```
 
-This configuration is intended for `scripts/generate_dataset.py` and is
-separate from the configurations used by `scripts/render.py`.
+The dataset generator supports random mesh orientations and random locations along the dendrite. Randomness is controlled by the configured seed for reproducibility.
 
-Run the dataset generator from the repository root:
-
-```bash
-PYTHONPATH=. python scripts/generate_dataset.py --config configs/dataset_v1.yaml
-```
-
-The number of generated instances, image size, XY sampling, renderer,
-PSF, noise model, mask thresholds, and output bit depth are controlled
-through the YAML configuration.
-
-For each dataset instance, the generator can save:
+A generated instance can contain:
 
 ```text
 clean.tif
@@ -343,5 +193,26 @@ combined_mask.tif
 metadata.json
 ```
 
-The ground-truth masks are generated from the clean rendered components
-before microscopy noise is added.
+The number of instances, spatial sampling, renderer, PSF, noise model, mask settings, and other parameters are defined in `configs/dataset_v1.yaml`.
+
+## Graphical user interface
+
+A GUI is available for loading meshes, selecting rendering regions, exporting configurations, and launching renders.
+
+Run:
+
+```powershell
+python gui/app.py
+```
+
+See `gui/README.md` for additional GUI instructions.
+
+## Configuration
+
+The main example configuration is:
+
+```text
+configs/default.yaml
+```
+
+Additional YAML files under `configs/` define specific rendering and experimental configurations.

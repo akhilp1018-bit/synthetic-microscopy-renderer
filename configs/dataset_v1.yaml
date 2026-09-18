@@ -41,12 +41,13 @@ samples:
 generation:
   location: geometry_random
   random_orientation: true
+  seed: 0
 
 grid:
   output_shape_zyx: [64, 128, 128]
   xy_um_per_px: 0.094
   z_step_um: 0.5
-  
+
 renderer:
   method: voxel_grid
 
@@ -54,15 +55,11 @@ renderer:
     spacing_nm: 200
     batch_faces: 2048
     labeling_mode: membrane
-    density_smooth_sigma_zyx: [0.6, 0.8, 0.8]
-    density_normalize_sum: true
-
-  gaussian_splatting:
-    labeling_mode: membrane
+    filled_closing_iterations: 1
 
 psf:
   mode: gaussian_2p
-  lambda_nm: 488.0
+  excitation_lambda_nm: 920.0
   na: 1.0
   refractive_index: 1.33
   shape_zyx: [13, 65, 65]
