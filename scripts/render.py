@@ -246,22 +246,22 @@ def get_oriented_roi_local_bounds_nm(grid_cfg, renderer_cfg, config):
 
     if method == "gaussian_splatting":
         splat_cfg = config.get("splatting", {})
-        sigma_tangent_vox = float(
-            splat_cfg.get("sigma_tangent_vox", 1.0)
+        sigma_tangent_nm = float(
+            splat_cfg.get("sigma_tangent_nm", 100.0)
         )
-        sigma_normal_vox = float(
-            splat_cfg.get("sigma_normal_vox", 0.5)
+        sigma_normal_nm = float(
+            splat_cfg.get("sigma_normal_nm", 50.0)
         )
-        sigma_max_vox = max(
-            sigma_tangent_vox,
-            sigma_normal_vox,
+        sigma_max_nm = max(
+            sigma_tangent_nm,
+            sigma_normal_nm,
         )
 
         # Use the largest splat width to keep the oriented ROI pre-crop
         # conservative for every possible membrane orientation.
-        margin_x = max(1.0, 3.0 * sigma_max_vox) * sx
-        margin_y = max(1.0, 3.0 * sigma_max_vox) * sy
-        margin_z = max(1.0, 3.0 * sigma_max_vox) * sz
+        margin_x = max(sx, 3.0 * sigma_max_nm)
+        margin_y = max(sy, 3.0 * sigma_max_nm)
+        margin_z = max(sz, 3.0 * sigma_max_nm)
     else:
         margin_x = sx
         margin_y = sy

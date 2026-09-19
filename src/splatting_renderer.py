@@ -144,6 +144,7 @@ def _splat_points_to_volume(
     grid,
     sigma_tangent_nm=100.0,
     sigma_normal_nm=50.0,
+    surface_area_nm2=None,
     device=None,
     points_per_batch=50000,
 ):
@@ -331,10 +332,12 @@ def _splat_points_to_volume(
 
     vol = vol_flat.reshape(Z, Y, X)
 
-    # Preserve a comparable total contribution across sampling densities.
+    # Normalize total splatted density to the physical mesh surface area.
+    # This makes the Gaussian surface-density model directly comparable to
+    # the area-weighted voxel membrane renderer.
     total = vol.sum()
-    if total > 0:
-        vol = vol / total * float(n_points)
+    if total > 0 and surface_area_nm2 is not None:
+        vol = vol / total * float(surface_area_nm2)
 
     return vol
 
@@ -410,6 +413,8 @@ def render_single_mesh_splatting(
 
     sampling_start = time.perf_counter()
 
+    surface_area_nm2 = float(mesh.area)
+
     points_xyz_nm, normals_xyz = _sample_surface_points(
         mesh,
         spacing_nm=spacing_nm,
@@ -433,6 +438,7 @@ def render_single_mesh_splatting(
         grid=grid,
         sigma_tangent_nm=sigma_tangent_nm,
         sigma_normal_nm=sigma_normal_nm,
+        surface_area_nm2=surface_area_nm2,
         device=device,
         points_per_batch=points_per_batch,
     )

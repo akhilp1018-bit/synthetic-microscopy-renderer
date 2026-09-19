@@ -50,12 +50,21 @@ grid:
 
 renderer:
   method: voxel_grid
+  labeling_mode: membrane
 
   voxel_grid:
     spacing_nm: 200
     batch_faces: 2048
     labeling_mode: membrane
     filled_closing_iterations: 1
+
+splatting:
+  spacing_nm: 200
+  sigma_tangent_nm: 100.0
+  sigma_normal_nm: 50.0
+  apply_psf: true
+  seed: 0
+  points_per_batch: 50000
 
 psf:
   mode: gaussian_2p
