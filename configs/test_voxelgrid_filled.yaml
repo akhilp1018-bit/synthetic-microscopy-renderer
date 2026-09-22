@@ -16,14 +16,14 @@ grid:
   roi_size_um_y: 150.0
   margin: 0.05
   shape_mode: fixed
-  output_shape_zyx: [64, 128, 128]
+  output_shape_zyx: [128, 256, 256]
 
 renderer:
   method: voxel_grid
 
   voxel_grid:
     labeling_mode: filled    #filled
-    spacing_nm: 200
+    spacing_nm: 100
     batch_faces: 2048
     filled_closing_iterations: 1
 

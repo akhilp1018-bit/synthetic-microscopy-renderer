@@ -40,7 +40,7 @@ input:
 
 
 output:
-  output_dir: outputs/mesh_001/gaussian_2p_gaussian_splatting_membrane
+  output_dir: outputs/mesh_001/gaussian_2p_voxel_grid_membrane
   output_name: mesh_001
 
 
@@ -73,7 +73,7 @@ renderer:
   # Options:
   #   voxel_grid
   #   gaussian_splatting
-  method: gaussian_splatting
+  method: voxel_grid
 
   # Gaussian splatting currently supports membrane only.
   # This top-level setting is used by the Gaussian renderer.
@@ -89,7 +89,7 @@ renderer:
     labeling_mode: membrane
 
     # Approximate surface sampling spacing in nanometres.
-    spacing_nm: 200
+    spacing_nm: 100
 
     # Number of mesh faces processed per batch.
     batch_faces: 2048
@@ -104,7 +104,7 @@ splatting:
   # ------------------------------------------------------------
 
   # Surface sampling spacing in nanometres.
-  spacing_nm: 200
+  spacing_nm: 100
 
   # Anisotropic Gaussian widths in physical nanometres.
   # Tangential sigma acts along the membrane surface.

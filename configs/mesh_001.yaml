@@ -248,7 +248,7 @@ noise:
   # Ground-truth masks are generated from the clean signal.
   #
 
-  enabled: false
+  enabled: true
 
   # Photon-count scale for Poisson noise.
   peak_photons: 500.0

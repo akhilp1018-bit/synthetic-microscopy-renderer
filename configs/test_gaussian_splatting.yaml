@@ -16,7 +16,7 @@ grid:
   roi_size_um_y: 150.0
   margin: 0.05
   shape_mode: fixed
-  output_shape_zyx: [64, 128, 128]
+  output_shape_zyx: [128, 256, 256]
 
 renderer:
   method: gaussian_splatting
@@ -26,7 +26,7 @@ renderer:
     labeling_mode: membrane
     filled_closing_iterations: 1
 splatting:
-  spacing_nm: 200
+  spacing_nm: 100
   sigma_tangent_nm: 100.0
   sigma_normal_nm: 50.0
   apply_psf: true

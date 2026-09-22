@@ -65,8 +65,10 @@ def collect_system_metadata():
     try:
         import torch
 
-        metadata["torch_version"] = torch.__version__
-        metadata["cuda_version"] = torch.version.cuda
+        metadata["torch_version"] = str(torch.__version__)
+        metadata["cuda_version"] = (
+            str(torch.version.cuda) if torch.version.cuda is not None else None
+        )
         metadata["cuda_available"] = torch.cuda.is_available()
 
         if torch.cuda.is_available():
