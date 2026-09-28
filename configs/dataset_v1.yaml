@@ -85,7 +85,7 @@ noise:
 masks:
   dendrite_rel_threshold: 0.1
   spine_rel_threshold: 0.1
-  save_individual_spine_masks: false
+  save_individual_spine_masks: true
 
 output:
   image_bit_depth: 8
