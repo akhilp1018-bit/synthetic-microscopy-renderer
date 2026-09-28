@@ -22,7 +22,7 @@ renderer:
   method: voxel_grid
 
   voxel_grid:
-    labeling_mode: membrane    #filled
+    labeling_mode: membrane    
     spacing_nm: 200
     batch_faces: 8192
     filled_closing_iterations: 1
