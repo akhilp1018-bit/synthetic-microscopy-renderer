@@ -1,7 +1,7 @@
 """
 Create preview images for labelled-mesh rendering experiments.
 
-Run this script only after the rendering pipeline has completed successfully
+Run this script after the rendering pipeline has completed successfully
 using render.py.
 
 Required renderer outputs:
@@ -15,6 +15,9 @@ Required renderer outputs:
     - dendrite ground-truth mask ending with:
           dendrite_mask.tif
 
+    - renderer metadata JSON:
+          metadata_*.json
+
 The script creates:
 
     - maximum-intensity projection of the rendered image
@@ -23,6 +26,17 @@ The script creates:
     - maximum-intensity projection with dendrite and spine GT overlay
     - full 3D RGB TIFF overlay
     - horizontal four-panel summary figure
+
+The summary figure contains:
+
+    (a) clean synthetic image
+    (b) dendrite ground truth
+    (c) spine ground truth
+    (d) ground-truth overlay
+
+A physical scale bar is added to panel (a). The lateral pixel size is read
+from the renderer metadata so that the scale bar corresponds to the physical
+dimensions of the rendered image.
 
 Overlay colors:
 
@@ -46,6 +60,7 @@ Generated files:
 
 from pathlib import Path
 import argparse
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -65,13 +80,13 @@ SPINE_COLOR = np.array(
 
 OVERLAY_ALPHA = 0.65
 
+# Physical scale-bar length shown in the summary figure.
+SCALE_BAR_UM = 10.0
+
 
 def normalize01(arr: np.ndarray) -> np.ndarray:
     """
     Normalize an array to the range [0, 1].
-
-    If the array contains only zero or negative values, return an
-    all-zero float32 array.
     """
     arr = arr.astype(np.float32)
 
@@ -161,10 +176,8 @@ def create_overlay(
     """
     Create an RGB overlay from an image and corresponding masks.
 
-    The image may be either a 2D image or a 3D stack.
-
     Dendrite pixels are shown in cyan-blue and spine pixels are shown
-    in orange. If the two masks overlap, the spine color is shown.
+    in orange. If the masks overlap, the spine color is shown.
     """
     image = normalize01(
         image
@@ -173,7 +186,6 @@ def create_overlay(
     spine = spine > 0
     dendrite = dendrite > 0
 
-    # Convert grayscale data to RGB.
     rgb = np.stack(
         [
             image,
@@ -183,7 +195,7 @@ def create_overlay(
         axis=-1,
     )
 
-    # Add dendrite overlay.
+    # Dendrite overlay.
     rgb[dendrite] = (
         (1.0 - OVERLAY_ALPHA)
         * rgb[dendrite]
@@ -191,8 +203,7 @@ def create_overlay(
         * DENDRITE_COLOR
     )
 
-    # Add spine overlay.
-    # Spine color is shown where the masks overlap.
+    # Spine overlay.
     rgb[spine] = (
         (1.0 - OVERLAY_ALPHA)
         * rgb[spine]
@@ -243,12 +254,178 @@ def save_overlay_stack(
     )
 
 
+def find_one(
+    output_dir: Path,
+    pattern: str,
+) -> Path:
+    """
+    Find exactly one required renderer output file.
+    """
+    matches = sorted(
+        output_dir.glob(pattern)
+    )
+
+    if len(matches) == 0:
+        raise FileNotFoundError(
+            f"Required file not found: {pattern}\n"
+            f"Checked directory: {output_dir}"
+        )
+
+    if len(matches) > 1:
+        raise RuntimeError(
+            f"Multiple files matched '{pattern}'.\n"
+            "Expected exactly one file:\n"
+            + "\n".join(
+                f"  {path}"
+                for path in matches
+            )
+        )
+
+    return matches[0]
+
+
+def find_xy_um_per_px(data):
+    """
+    Search the metadata recursively for xy_um_per_px.
+
+    This allows the preview script to use the physical pixel size stored
+    by the renderer without depending on a fixed metadata nesting level.
+    """
+    if isinstance(data, dict):
+        if "xy_um_per_px" in data:
+            return float(
+                data["xy_um_per_px"]
+            )
+
+        for value in data.values():
+            result = find_xy_um_per_px(
+                value
+            )
+
+            if result is not None:
+                return result
+
+    elif isinstance(data, list):
+        for value in data:
+            result = find_xy_um_per_px(
+                value
+            )
+
+            if result is not None:
+                return result
+
+    return None
+
+
+def load_xy_um_per_px(
+    metadata_path: Path,
+) -> float:
+    """
+    Read the lateral pixel size in micrometres per pixel from metadata.
+    """
+    with metadata_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        metadata = json.load(
+            file
+        )
+
+    xy_um_per_px = find_xy_um_per_px(
+        metadata
+    )
+
+    if xy_um_per_px is None:
+        raise KeyError(
+            "Could not find 'xy_um_per_px' in renderer metadata:\n"
+            f"  {metadata_path}"
+        )
+
+    if xy_um_per_px <= 0:
+        raise ValueError(
+            "Invalid lateral pixel size in metadata:\n"
+            f"  xy_um_per_px = {xy_um_per_px}"
+        )
+
+    return xy_um_per_px
+
+
+def add_scale_bar(
+    ax,
+    image_shape,
+    xy_um_per_px: float,
+    scale_bar_um: float,
+) -> None:
+    """
+    Add a physical scale bar to an image axis.
+
+    The bar length in pixels is calculated from the physical lateral
+    pixel size stored in the renderer metadata.
+    """
+    height, width = image_shape
+
+    scale_bar_px = (
+        scale_bar_um
+        / xy_um_per_px
+    )
+
+    if scale_bar_px >= width:
+        raise ValueError(
+            f"Requested scale bar ({scale_bar_um} um) is wider "
+            "than the displayed image."
+        )
+
+    # Place the scale bar near the lower-left corner.
+    margin_x = 0.06 * width
+    margin_y = 0.07 * height
+
+    x_start = margin_x
+    x_end = (
+        x_start
+        + scale_bar_px
+    )
+
+    y = (
+        height
+        - margin_y
+    )
+
+    ax.plot(
+        [
+            x_start,
+            x_end,
+        ],
+        [
+            y,
+            y,
+        ],
+        color="white",
+        linewidth=4,
+        solid_capstyle="butt",
+    )
+
+    ax.text(
+        (
+            x_start
+            + x_end
+        )
+        / 2,
+        y - 0.025 * height,
+        f"{scale_bar_um:g} µm",
+        color="white",
+        fontsize=11,
+        ha="center",
+        va="bottom",
+    )
+
+
 def save_combined_figure(
     path: Path,
     image_mip: np.ndarray,
     dendrite_mip: np.ndarray,
     spine_mip: np.ndarray,
     overlay_mip: np.ndarray,
+    xy_um_per_px: float,
 ) -> None:
     """
     Save a horizontal four-panel summary figure.
@@ -257,7 +434,7 @@ def save_combined_figure(
         (a) clean synthetic image
         (b) dendrite ground truth
         (c) spine ground truth
-        (d) image with ground-truth overlay
+        (d) ground-truth overlay
     """
     fig, axes = plt.subplots(
         1,
@@ -269,14 +446,23 @@ def save_combined_figure(
         normalize01(image_mip),
         cmap="gray",
     )
+
     axes[0].set_title(
         "(a) Clean synthetic image"
+    )
+
+    add_scale_bar(
+        axes[0],
+        image_mip.shape,
+        xy_um_per_px,
+        SCALE_BAR_UM,
     )
 
     axes[1].imshow(
         dendrite_mip > 0,
         cmap="gray",
     )
+
     axes[1].set_title(
         "(b) Dendrite GT"
     )
@@ -285,6 +471,7 @@ def save_combined_figure(
         spine_mip > 0,
         cmap="gray",
     )
+
     axes[2].set_title(
         "(c) Spine GT"
     )
@@ -292,6 +479,7 @@ def save_combined_figure(
     axes[3].imshow(
         overlay_mip,
     )
+
     axes[3].set_title(
         "(d) GT overlay"
     )
@@ -309,38 +497,6 @@ def save_combined_figure(
     )
 
     plt.close(fig)
-
-
-def find_one(
-    output_dir: Path,
-    pattern: str,
-) -> Path:
-    """
-    Find exactly one required renderer output file.
-    """
-    matches = sorted(
-        output_dir.glob(pattern)
-    )
-
-    if len(matches) == 0:
-        raise FileNotFoundError(
-            f"Required renderer output not found: {pattern}\n"
-            f"Checked directory: {output_dir}\n"
-            "Run the labelled-mesh experiment with render.py "
-            "before running this script."
-        )
-
-    if len(matches) > 1:
-        raise RuntimeError(
-            f"Multiple files matched '{pattern}'.\n"
-            "Expected exactly one renderer output:\n"
-            + "\n".join(
-                f"  {path}"
-                for path in matches
-            )
-        )
-
-    return matches[0]
 
 
 def main() -> None:
@@ -394,9 +550,29 @@ def main() -> None:
         "*dendrite_mask.tif",
     )
 
+    metadata_path = find_one(
+        output_dir,
+        "metadata_*.json",
+    )
+
+    # Read the physical lateral pixel size from renderer metadata.
+    xy_um_per_px = load_xy_um_per_px(
+        metadata_path
+    )
+
+    print(
+        f"XY sampling: {xy_um_per_px} µm/pixel"
+    )
+
+    print(
+        f"Scale bar: {SCALE_BAR_UM:g} µm "
+        f"({SCALE_BAR_UM / xy_um_per_px:.2f} pixels)"
+    )
+
     # Create preview directory.
     preview_dir = (
-        output_dir / "previews"
+        output_dir
+        / "previews"
     )
 
     preview_dir.mkdir(
@@ -404,10 +580,11 @@ def main() -> None:
         exist_ok=True,
     )
 
-    print("Loading renderer outputs:")
+    print("\nLoading renderer outputs:")
     print(f"  image   : {image_path}")
     print(f"  spine   : {spine_path}")
     print(f"  dendrite: {dendrite_path}")
+    print(f"  metadata: {metadata_path}")
 
     # Load renderer outputs.
     image = tifffile.imread(
@@ -460,7 +637,7 @@ def main() -> None:
         f"Volume shape ZYX: {image.shape}"
     )
 
-    # Create maximum-intensity projections along Z.
+    # Maximum-intensity projections along Z.
     image_mip = image.max(
         axis=0
     )
@@ -473,8 +650,7 @@ def main() -> None:
         axis=0
     )
 
-    # Create the 2D overlay from the same MIPs used in the
-    # individual preview panels.
+    # Create an overlay from the same MIPs used in the individual panels.
     overlay_mip = create_overlay(
         image_mip,
         spine_mip,
@@ -512,7 +688,7 @@ def main() -> None:
         / "labelled_render_summary.png"
     )
 
-    # Save individual MIP previews.
+    # Save individual previews.
     save_gray(
         image_mip_path,
         normalize01(image_mip),
@@ -528,13 +704,12 @@ def main() -> None:
         dendrite_mip > 0,
     )
 
-    # Save MIP overlay.
     save_rgb(
         overlay_mip_path,
         overlay_mip,
     )
 
-    # Save complete 3D RGB overlay for inspection in Fiji/ImageJ.
+    # Save the complete 3D RGB overlay for inspection in Fiji/ImageJ.
     save_overlay_stack(
         overlay_stack_path,
         image,
@@ -542,13 +717,14 @@ def main() -> None:
         dendrite,
     )
 
-    # Save the final horizontal four-panel summary figure.
+    # Save the final horizontal four-panel figure.
     save_combined_figure(
         combined_figure_path,
         image_mip,
         dendrite_mip,
         spine_mip,
         overlay_mip,
+        xy_um_per_px,
     )
 
     print("\nSaved preview files:")
