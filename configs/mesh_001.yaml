@@ -100,7 +100,7 @@ grid:
   shape_mode: fixed
 
   # Order: [Z, Y, X]
-  output_shape_zyx: [64, 128, 128]
+  output_shape_zyx: [256, 512, 512]
 
 
 renderer:
@@ -145,7 +145,7 @@ renderer:
     spacing_nm: 200
 
     # Number of mesh faces processed per batch.
-    batch_faces: 2048
+    batch_faces: 8192
 
     # Used only for filled rendering.
     filled_closing_iterations: 1
