@@ -24,7 +24,7 @@ renderer:
   voxel_grid:
     labeling_mode: filled    #filled
     spacing_nm: 200
-    batch_faces: 2048
+    batch_faces: 8192
     filled_closing_iterations: 1
 
 psf:
