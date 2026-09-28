@@ -46,6 +46,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from scipy.ndimage import center_of_mass
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -748,6 +749,11 @@ def main():
                     )
                 )
 
+                # One GT detection center is stored for each individual
+                # labelled spine that produces a non-empty rendered mask
+                # inside the current FOV.
+                gt_spine_centers = []
+
                 for i, spine in enumerate(
                     spines,
                     start=1,
@@ -763,32 +769,69 @@ def main():
                     )
 
                     # -------------------------------------------------
-                    # Optional individual spine GT mask
+                    # Individual spine detection GT center
                     # -------------------------------------------------
+                    #
+                    # Each labelled spine is thresholded separately before
+                    # being added to the combined spine volume. This preserves
+                    # one GT identity per labelled spine even when neighbouring
+                    # spine masks touch in the combined mask.
+                    #
+                    # If no part of the rendered spine is visible in the
+                    # current FOV, its individual mask is empty and it is not
+                    # included as a detection target.
+                    #
 
-                    if mask_cfg.get(
-                        "save_individual_spine_masks",
-                        False,
-                    ):
-                        individual_spine_mask = make_mask(
-                            spine_render,
-                            mask_cfg.get(
-                                "spine_rel_threshold",
-                                0.1,
-                            ),
+                    individual_spine_mask = make_mask(
+                        spine_render,
+                        mask_cfg.get(
+                            "spine_rel_threshold",
+                            0.1,
+                        ),
+                    )
+
+                    individual_mask_np = (
+                        individual_spine_mask
+                        .detach()
+                        .cpu()
+                        .numpy()
+                        .astype(bool)
+                    )
+
+                    if np.any(individual_mask_np):
+                        center_zyx = center_of_mass(
+                            individual_mask_np
                         )
 
-                        save_tiff(
-                            individual_spine_mask,
-                            instance_dir
-                            / f"spine_{i:03d}_mask.tif",
-                            bit_depth,
-                            xy_um,
-                            z_um,
-                            is_mask=True,
-                        )
+                        gt_spine_centers.append({
+                            "spine_id": int(i),
+                            "center_zyx_voxel": [
+                                float(v)
+                                for v in center_zyx
+                            ],
+                        })
 
-                        del individual_spine_mask
+                        # Optional supporting output for inspection and
+                        # reproducibility. Detection evaluation should use
+                        # gt_spine_centers from metadata, not these TIFFs.
+                        if mask_cfg.get(
+                            "save_individual_spine_masks",
+                            False,
+                        ):
+                            save_tiff(
+                                individual_spine_mask,
+                                instance_dir
+                                / f"spine_{i:03d}_mask.tif",
+                                bit_depth,
+                                xy_um,
+                                z_um,
+                                is_mask=True,
+                            )
+
+                    del (
+                        individual_spine_mask,
+                        individual_mask_np,
+                    )
 
                     spine_volume += (
                         spine_render
@@ -926,6 +969,12 @@ def main():
 
                         "source_spine_count":
                             len(sample["spines"]),
+
+                        "gt_spine_count":
+                            len(gt_spine_centers),
+
+                        "gt_spine_centers":
+                            gt_spine_centers,
 
                         "rotation":
                             transform,
