@@ -26,7 +26,7 @@ renderer:
     labeling_mode: membrane
     filled_closing_iterations: 1
 splatting:
-  spacing_nm: 100
+  spacing_nm: 120
   sigma_tangent_nm: 100.0
   sigma_normal_nm: 50.0
   apply_psf: true

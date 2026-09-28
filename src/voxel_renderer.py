@@ -150,6 +150,95 @@ def _triangle_surface_samples(tri, spacing_nm, device):
 
     return points, weights
 
+
+def _triangle_surface_samples_batched(tri_batch, spacing_nm, device):
+    """
+    Create deterministic surface samples for a batch of triangles.
+
+    This is the batched equivalent of _triangle_surface_samples. It preserves
+    the same area-based sample count, deterministic low-discrepancy
+    barycentric sampling, and per-triangle area weighting, while evaluating
+    many triangles together with Torch tensor operations.
+
+    Returns:
+        points:
+            Concatenated XYZ surface samples for all valid triangles.
+        weights:
+            Area weight associated with each sample.
+    """
+    if tri_batch.ndim != 3 or tri_batch.shape[1:] != (3, 3):
+        raise ValueError("tri_batch must have shape [N, 3, 3]")
+
+    v0 = tri_batch[:, 0, :]
+    v1 = tri_batch[:, 1, :]
+    v2 = tri_batch[:, 2, :]
+
+    areas = 0.5 * torch.linalg.norm(
+        torch.cross(v1 - v0, v2 - v0, dim=1),
+        dim=1,
+    )
+
+    valid_triangles = areas > 0
+    if not torch.any(valid_triangles):
+        return None, None
+
+    v0 = v0[valid_triangles]
+    v1 = v1[valid_triangles]
+    v2 = v2[valid_triangles]
+    areas = areas[valid_triangles]
+
+    n_samples = torch.clamp(
+        torch.ceil(areas / (float(spacing_nm) ** 2)).long(),
+        min=1,
+    )
+
+    # Repeat triangle indices so all required surface samples can be
+    # evaluated in one batched tensor operation.
+    triangle_ids = torch.repeat_interleave(
+        torch.arange(
+            areas.shape[0],
+            dtype=torch.long,
+            device=device,
+        ),
+        n_samples,
+    )
+
+    # Reconstruct the per-triangle sample index:
+    # 0, 1, ..., n_samples[i]-1 for every triangle i.
+    sample_starts = torch.cumsum(n_samples, dim=0) - n_samples
+    sample_index = (
+        torch.arange(
+            int(n_samples.sum().item()),
+            dtype=torch.long,
+            device=device,
+        )
+        - torch.repeat_interleave(sample_starts, n_samples)
+    ).to(torch.float32)
+
+    n_for_sample = n_samples[triangle_ids].to(torch.float32)
+
+    # Same deterministic low-discrepancy barycentric sequence as the
+    # original per-triangle implementation.
+    u = (sample_index + 0.5) / n_for_sample
+    v = torch.frac(
+        (sample_index + 0.5) * 0.6180339887498949
+    )
+
+    sqrt_u = torch.sqrt(u)
+    bary0 = 1.0 - sqrt_u
+    bary1 = sqrt_u * (1.0 - v)
+    bary2 = sqrt_u * v
+
+    points = (
+        bary0[:, None] * v0[triangle_ids]
+        + bary1[:, None] * v1[triangle_ids]
+        + bary2[:, None] * v2[triangle_ids]
+    )
+
+    weights = areas[triangle_ids] / n_for_sample
+
+    return points, weights
+
 def _ply_scalar_dtype(name, endian="<"):
     """Return a NumPy dtype for a scalar PLY property type."""
     mapping = {
@@ -488,49 +577,48 @@ def mesh_to_density_zyx(
     for start in range(0, tris.shape[0], batch_faces):
         tri_batch = tris[start:start + batch_faces]
 
-        for tri in tri_batch:
-            points, weights = _triangle_surface_samples(
-                tri,
-                spacing_nm=spacing_nm,
-                device=device,
-            )
+        points, weights = _triangle_surface_samples_batched(
+            tri_batch,
+            spacing_nm=spacing_nm,
+            device=device,
+        )
 
-            if points is None:
-                continue
+        if points is None:
+            continue
 
-            ix = torch.floor(
-                (points[:, 0] - x0) / sx
-            ).long()
-            iy_source = torch.floor(
-                (points[:, 1] - y0) / sy
-            ).long()
-            iz = torch.floor(
-                (points[:, 2] - z0) / sz
-            ).long()
+        ix = torch.floor(
+            (points[:, 0] - x0) / sx
+        ).long()
+        iy_source = torch.floor(
+            (points[:, 1] - y0) / sy
+        ).long()
+        iz = torch.floor(
+            (points[:, 2] - z0) / sz
+        ).long()
 
-            iy = (Y - 1) - iy_source
+        iy = (Y - 1) - iy_source
 
-            valid = (
-                (ix >= 0) & (ix < X)
-                & (iy >= 0) & (iy < Y)
-                & (iz >= 0) & (iz < Z)
-            )
+        valid = (
+            (ix >= 0) & (ix < X)
+            & (iy >= 0) & (iy < Y)
+            & (iz >= 0) & (iz < Z)
+        )
 
-            if not torch.any(valid):
-                continue
+        if not torch.any(valid):
+            continue
 
-            ix = ix[valid]
-            iy = iy[valid]
-            iz = iz[valid]
-            weights_valid = weights[valid]
+        ix = ix[valid]
+        iy = iy[valid]
+        iz = iz[valid]
+        weights_valid = weights[valid]
 
-            flat_idx = iz * (Y * X) + iy * X + ix
+        flat_idx = iz * (Y * X) + iy * X + ix
 
-            rho_flat.scatter_add_(
-                0,
-                flat_idx,
-                weights_valid,
-            )
+        rho_flat.scatter_add_(
+            0,
+            flat_idx,
+            weights_valid,
+        )
 
     return rho
 
