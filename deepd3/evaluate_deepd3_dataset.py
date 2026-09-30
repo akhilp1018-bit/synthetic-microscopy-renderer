@@ -22,6 +22,7 @@ TEST:
     - calculate final segmentation and detection metrics
 
 Metrics:
+
     Dendrite segmentation:
         IoU, Dice
 
@@ -34,6 +35,7 @@ Metrics:
         recall versus matching distance
 
 Important evaluation settings:
+
     Voxel spacing (Z,Y,X):
         500 nm, 94 nm, 94 nm
 
@@ -44,8 +46,8 @@ Important evaluation settings:
         Gaussian smoothing followed by 3D local-maximum detection.
 
     Ground-truth spine centers:
-        Connected components of the binary spine mask followed by
-        center-of-mass calculation.
+        Centers of mass of individually rendered non-empty spine masks,
+        loaded from the instance metadata.
 
 Usage
 -----
@@ -103,9 +105,7 @@ import numpy as np
 import tifffile
 
 from scipy.ndimage import (
-    center_of_mass,
     gaussian_filter,
-    label,
     maximum_filter,
 )
 
@@ -371,28 +371,52 @@ def compute_dice(
 # ==========================================================
 
 def get_gt_spine_centers(
-    spine_mask,
+    metadata_path: Path,
 ):
+    """
+    Load individual ground-truth spine centers generated
+    during synthetic dataset creation.
 
-    labelled_mask, count = label(
-        spine_mask
+    Centers are stored in Z, Y, X voxel coordinates.
+    """
+
+    require_file(
+        metadata_path,
+        "Instance metadata",
     )
 
-    if count == 0:
+    with open(
+        metadata_path,
+        "r",
+        encoding="utf-8",
+    ) as file:
+
+        metadata = json.load(
+            file
+        )
+
+    centers_data = metadata.get(
+        "gt_spine_centers"
+    )
+
+    if centers_data is None:
+
+        raise KeyError(
+            f"'gt_spine_centers' missing from "
+            f"{metadata_path}"
+        )
+
+    if len(centers_data) == 0:
 
         return np.empty(
             (0, 3),
             dtype=np.float32,
         )
 
-    centers = center_of_mass(
-        spine_mask,
-        labelled_mask,
-        range(
-            1,
-            count + 1,
-        ),
-    )
+    centers = [
+        item["center_zyx_voxel"]
+        for item in centers_data
+    ]
 
     return np.asarray(
         centers,
@@ -722,6 +746,11 @@ def load_model_instances(
             / "spine_mask.tif"
         )
 
+        metadata_path = (
+            instance_dir
+            / "metadata.json"
+        )
+
         prediction_path = (
             instance_dir
             / "deepd3_predictions"
@@ -736,6 +765,11 @@ def load_model_instances(
         require_file(
             spine_gt_path,
             "Spine GT",
+        )
+
+        require_file(
+            metadata_path,
+            "Instance metadata",
         )
 
         require_file(
@@ -790,9 +824,14 @@ def load_model_instances(
                 f"{spine_probability.shape}"
             )
 
+        # Detection GT is loaded from the individual-spine
+        # centers saved during dataset generation.
+        #
+        # Do NOT calculate centers from connected components
+        # of spine_gt because touching spines can merge.
         gt_centers = (
             get_gt_spine_centers(
-                spine_gt
+                metadata_path
             )
         )
 

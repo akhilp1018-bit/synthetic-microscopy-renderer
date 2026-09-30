@@ -26,6 +26,10 @@ DENDRITE SEGMENTATION
            FP = predicted dendrite outside GT
            FN = GT dendrite missed by prediction
 
+Ground-truth spine detection centers are loaded from metadata.json.
+These centers were calculated from the individually rendered spine masks
+during synthetic dataset generation.
+
 All thresholds are loaded from the VALIDATION set.
 
 Therefore TEST visualization uses frozen validation thresholds
@@ -105,9 +109,7 @@ import numpy as np
 import tifffile
 
 from scipy.ndimage import (
-    center_of_mass,
     gaussian_filter,
-    label,
     maximum_filter,
 )
 
@@ -450,35 +452,52 @@ def load_thresholds(
 # ==========================================================
 
 def extract_gt_centers(
-    spine_mask,
+    metadata_path: Path,
 ):
+    """
+    Load individual GT spine centers stored during
+    synthetic dataset generation.
 
-    binary = (
-        np.asarray(
-            spine_mask
+    Coordinates are stored in Z, Y, X voxel order.
+    """
+
+    require_file(
+        metadata_path,
+        "Instance metadata",
+    )
+
+    with open(
+        metadata_path,
+        "r",
+        encoding="utf-8",
+    ) as file:
+
+        metadata = json.load(
+            file
         )
-        > 0
+
+    centers_data = metadata.get(
+        "gt_spine_centers"
     )
 
-    labeled_mask, count = label(
-        binary
-    )
+    if centers_data is None:
 
-    if count == 0:
+        raise KeyError(
+            f"'gt_spine_centers' missing from "
+            f"{metadata_path}"
+        )
 
-        return np.zeros(
+    if len(centers_data) == 0:
+
+        return np.empty(
             (0, 3),
             dtype=np.float64,
         )
 
-    centers = center_of_mass(
-        binary,
-        labeled_mask,
-        range(
-            1,
-            count + 1,
-        ),
-    )
+    centers = [
+        item["center_zyx_voxel"]
+        for item in centers_data
+    ]
 
     return np.asarray(
         centers,
@@ -1333,6 +1352,11 @@ def process_instance(
         / "dendrite_mask.tif"
     )
 
+    metadata_path = (
+        instance_dir
+        / "metadata.json"
+    )
+
     require_file(
         noisy_path,
         "Noisy synthetic image",
@@ -1346,6 +1370,11 @@ def process_instance(
     require_file(
         dendrite_gt_path,
         "GT dendrite mask",
+    )
+
+    require_file(
+        metadata_path,
+        "Instance metadata",
     )
 
     noisy = tifffile.imread(
@@ -1378,9 +1407,14 @@ def process_instance(
             f"Dendrite GT : {dendrite_gt.shape}"
         )
 
+    # Detection GT comes from the centers of the
+    # individually rendered spine masks stored in metadata.
+    #
+    # Do not derive detection centers from connected
+    # components of the combined spine segmentation mask.
     gt_centers = (
         extract_gt_centers(
-            spine_gt
+            metadata_path
         )
     )
 
@@ -1395,18 +1429,13 @@ def process_instance(
     )
 
     print()
-
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print(
         "DeepD3 qualitative visualization"
     )
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print(
         f"Split      : {split}"
@@ -1438,9 +1467,7 @@ def process_instance(
         f"Thresholds : {threshold_path}"
     )
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     for model in selected_models:
 
@@ -1728,18 +1755,13 @@ def main():
         ]
 
         print()
-
-        print(
-            "=" * 70
-        )
+        print("=" * 70)
 
         print(
             "Visualize DeepD3 Dataset"
         )
 
-        print(
-            "=" * 70
-        )
+        print("=" * 70)
 
         print(
             f"Split     : "
@@ -1756,9 +1778,7 @@ def main():
             f"{', '.join(selected_models)}"
         )
 
-        print(
-            "=" * 70
-        )
+        print("=" * 70)
 
     else:
 
@@ -1785,10 +1805,7 @@ def main():
         if total_instances > 1:
 
             print()
-
-            print(
-                "#" * 70
-            )
+            print("#" * 70)
 
             print(
                 f"Processing instance "
@@ -1796,9 +1813,7 @@ def main():
                 f"{instance_name}"
             )
 
-            print(
-                "#" * 70
-            )
+            print("#" * 70)
 
         process_instance(
             dataset_root=dataset_root,
@@ -1810,10 +1825,7 @@ def main():
         )
 
     print()
-
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print(
         "Visualization complete"
@@ -1829,11 +1841,8 @@ def main():
         f"{args.split}"
     )
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
 
 if __name__ == "__main__":
-
     main()
