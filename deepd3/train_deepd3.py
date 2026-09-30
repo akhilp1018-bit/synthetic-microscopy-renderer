@@ -72,6 +72,7 @@ Training uses the train split and model selection uses the
 validation split. The test split is not used during training.
 Use different --seed values for repeated training runs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -303,9 +304,8 @@ def train(
     validation_samples: int = 1280,
     seed: int = 0,
 ):
-    # Set deterministic environment options before importing TensorFlow.
+    # Use tf.keras as the segmentation-models backend.
     os.environ["SM_FRAMEWORK"] = "tf.keras"
-    os.environ["TF_DETERMINISTIC_OPS"] = "1"
 
     import tensorflow as tf
     from tensorflow.keras.callbacks import (
@@ -322,16 +322,10 @@ def train(
     from deepd3.model import DeepD3_Model
     from deepd3.training.stream import DataGeneratorStream
 
-    # Reproducible training initialization and data augmentation.
+    # Fixed random seed for initialization and data sampling.
     random.seed(seed)
     np.random.seed(seed)
     tf.keras.utils.set_random_seed(seed)
-
-    # Request deterministic TensorFlow operations where supported.
-    try:
-        tf.config.experimental.enable_op_determinism()
-    except (AttributeError, RuntimeError):
-        pass
 
     output_dir.mkdir(
         parents=True,
