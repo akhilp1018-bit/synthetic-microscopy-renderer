@@ -1,7 +1,4 @@
 """
-evaluate_deepd3_benchmark.py
-----------------------------
-
 Evaluate real-trained and synthetic-trained DeepD3 models on the
 real DeepD3 benchmark.
 
@@ -11,13 +8,15 @@ The script evaluates:
     - spine-center detection: Precision, Recall and F1
 
 Segmentation is evaluated against expert annotations U, V and W.
+For both dendrite and spine segmentation, the intersection and union
+of U, V and W are also evaluated.
+
 Spine detection is evaluated against the multi-rater spine-center
 annotations.
 
 Frozen thresholds selected on the synthetic validation dataset are
 used for both models. No thresholds are optimized on the real
 benchmark.
-
 
 Usage
 -----
@@ -26,44 +25,14 @@ Run from the repository root:
 
     python deepd3/evaluate_deepd3_benchmark.py
 
-
-Input
------
-
-benchmarks/deepd3/
-├── DeepD3_Benchmark.tif
-├── Annotations_and_Clusters.csv
-├── Segmentation_U.mask
-├── Segmentation_V.mask
-├── Segmentation_W.mask
-├── Dendrite_U.swc
-├── Dendrite_V.swc
-├── Dendrite_W.swc
-└── predictions/
-    ├── real_32F_94nm.prediction
-    └── synthetic_32F_94nm.prediction
-
-
 Output
 ------
 
 benchmarks/deepd3/evaluation/
 ├── segmentation_results.csv
 └── spine_detection_results.csv
-
-
-Important
----------
-
-Segmentation thresholds and spine-detection thresholds are frozen
-from synthetic validation and are not tuned on the real benchmark.
-
-Spine segmentation is evaluated against U, V and W separately and
-also against their intersection and union.
-
-Spine-center detection is evaluated for annotation agreement levels
-from >=1 to >=7 raters using one-to-one matching within 1000 nm.
 """
+
 from pathlib import Path
 import argparse
 import json
@@ -91,11 +60,6 @@ from deepd3.core.dendrite import (
 
 BENCHMARK_DIR = Path("benchmarks/deepd3")
 
-DEFAULT_IMAGE = (
-    BENCHMARK_DIR
-    / "DeepD3_Benchmark.tif"
-)
-
 DEFAULT_REAL_PRED = (
     BENCHMARK_DIR
     / "predictions"
@@ -119,15 +83,18 @@ DEFAULT_OUTPUT_DIR = (
 # =========================================================
 
 DEFAULT_THRESHOLDS = Path(
-    "outputs/synthetic_dataset_v1/deepd3_evaluation/validation/selected_thresholds.json"
+    "outputs/synthetic_dataset_v1/"
+    "deepd3_evaluation/validation/"
+    "selected_thresholds.json"
 )
 
 
 def load_selected_thresholds(path):
     """
-    Load segmentation and spine-detection thresholds selected previously
-    on the synthetic validation dataset.
+    Load segmentation and spine-detection thresholds selected
+    previously on the synthetic validation dataset.
     """
+
     with open(path, "r", encoding="utf-8") as file:
         selected = json.load(file)
 
@@ -143,15 +110,18 @@ def load_selected_thresholds(path):
     ]
 
     for model_name in required_models:
+
         if model_name not in selected:
             raise KeyError(
                 f"Missing threshold entry '{model_name}' in {path}"
             )
 
         for key in required_keys:
+
             if key not in selected[model_name]:
                 raise KeyError(
-                    f"Missing threshold '{key}' for '{model_name}' in {path}"
+                    f"Missing threshold '{key}' "
+                    f"for '{model_name}' in {path}"
                 )
 
     return selected
@@ -159,9 +129,6 @@ def load_selected_thresholds(path):
 
 # =========================================================
 # Spine detection settings
-# =========================================================
-#
-# Same settings as the synthetic-data evaluation.
 # =========================================================
 
 SPACING_NM_ZYX = np.array(
@@ -213,10 +180,7 @@ def compute_iou(pred, gt):
     if union == 0:
         return np.nan
 
-    return (
-        intersection
-        / union
-    )
+    return intersection / union
 
 
 def compute_dice(pred, gt):
@@ -263,9 +227,7 @@ def load_prediction(path):
 
     print(path)
 
-    data = fl.load(
-        path
-    )
+    data = fl.load(path)
 
     if (
         isinstance(data, dict)
@@ -276,13 +238,8 @@ def load_prediction(path):
             data["prediction"]
         )
 
-        dendrite = (
-            prediction[..., 0]
-        )
-
-        spine = (
-            prediction[..., 1]
-        )
+        dendrite = prediction[..., 0]
+        spine = prediction[..., 1]
 
     elif (
         isinstance(data, dict)
@@ -300,9 +257,7 @@ def load_prediction(path):
 
     else:
 
-        prediction = np.asarray(
-            data
-        )
+        prediction = np.asarray(data)
 
         if (
             prediction.ndim != 4
@@ -314,13 +269,8 @@ def load_prediction(path):
                 f"{path}"
             )
 
-        dendrite = (
-            prediction[..., 0]
-        )
-
-        spine = (
-            prediction[..., 1]
-        )
+        dendrite = prediction[..., 0]
+        spine = prediction[..., 1]
 
     print(
         "Dendrite shape:",
@@ -364,9 +314,7 @@ def load_spine_mask(path):
 
     print(path)
 
-    data = fl.load(
-        path
-    )
+    data = fl.load(path)
 
     mask = np.asarray(
         data["mask"]
@@ -391,9 +339,7 @@ def load_spine_mask(path):
         1,
     )
 
-    mask = (
-        mask > 0
-    )
+    mask = mask > 0
 
     print(
         "Converted shape:",
@@ -444,17 +390,17 @@ def load_all_spine_gt(
     print("========================================")
 
     print(
-        "U voxels           :",
+        "U voxels            :",
         int(U.sum()),
     )
 
     print(
-        "V voxels           :",
+        "V voxels            :",
         int(V.sum()),
     )
 
     print(
-        "W voxels           :",
+        "W voxels            :",
         int(W.sum()),
     )
 
@@ -464,22 +410,16 @@ def load_all_spine_gt(
     )
 
     print(
-        "Union voxels       :",
+        "Union voxels        :",
         int(union.sum()),
     )
 
     return {
-
         "U": U,
-
         "V": V,
-
         "W": W,
-
         "intersection": intersection,
-
         "union": union,
-
     }
 
 
@@ -554,8 +494,7 @@ def rasterize_dendrite_swc(
                 max_id + 1,
             )
         )
-        -
-        node_id_set
+        - node_id_set
     )
 
     if missing_ids:
@@ -596,13 +535,11 @@ def rasterize_dendrite_swc(
         if parent_id <= 0:
 
             root_nodes += 1
-
             continue
 
         if parent_id not in node_id_set:
 
             missing_parent_edges += 1
-
             continue
 
         p0, r0 = xyzr(
@@ -673,6 +610,10 @@ def rasterize_dendrite_swc(
     return mask
 
 
+# =========================================================
+# Dendrite segmentation ground truth
+# =========================================================
+
 def load_all_dendrite_gt(
     benchmark_dir,
     reference_tif,
@@ -703,6 +644,52 @@ def load_all_dendrite_gt(
             spacing=spacing,
         )
 
+    # =====================================================
+    # NEW:
+    # Construct intersection and union of dendrite GT masks
+    # =====================================================
+
+    masks["intersection"] = (
+        masks["U"]
+        & masks["V"]
+        & masks["W"]
+    )
+
+    masks["union"] = (
+        masks["U"]
+        | masks["V"]
+        | masks["W"]
+    )
+
+    print("\n========================================")
+    print("Dendrite GT summary")
+    print("========================================")
+
+    print(
+        "U voxels            :",
+        int(masks["U"].sum()),
+    )
+
+    print(
+        "V voxels            :",
+        int(masks["V"].sum()),
+    )
+
+    print(
+        "W voxels            :",
+        int(masks["W"].sum()),
+    )
+
+    print(
+        "Intersection voxels:",
+        int(masks["intersection"].sum()),
+    )
+
+    print(
+        "Union voxels        :",
+        int(masks["union"].sum()),
+    )
+
     return masks
 
 
@@ -716,9 +703,7 @@ def check_shapes(
     dendrite_gt,
 ):
 
-    image_shape = (
-        image.shape
-    )
+    image_shape = image.shape
 
     print("\n========================================")
     print("Checking GT shapes")
@@ -731,10 +716,7 @@ def check_shapes(
             mask.shape,
         )
 
-        if (
-            mask.shape
-            != image_shape
-        ):
+        if mask.shape != image_shape:
 
             raise RuntimeError(
                 f"Spine GT {name} shape "
@@ -749,10 +731,7 @@ def check_shapes(
             mask.shape,
         )
 
-        if (
-            mask.shape
-            != image_shape
-        ):
+        if mask.shape != image_shape:
 
             raise RuntimeError(
                 f"Dendrite GT {name} shape "
@@ -783,10 +762,7 @@ def evaluate_segmentation_model(
         prediction_path
     )
 
-    if (
-        dend_prob.shape
-        != image_shape
-    ):
+    if dend_prob.shape != image_shape:
 
         raise RuntimeError(
             f"Dendrite prediction shape "
@@ -794,10 +770,7 @@ def evaluate_segmentation_model(
             f"benchmark {image_shape}"
         )
 
-    if (
-        spine_prob.shape
-        != image_shape
-    ):
+    if spine_prob.shape != image_shape:
 
         raise RuntimeError(
             f"Spine prediction shape "
@@ -861,14 +834,19 @@ def evaluate_segmentation_model(
     print("DENDRITE RESULTS")
     print("========================================")
 
-    for rater in [
+    # NEW:
+    # Evaluate U, V, W, intersection and union.
+
+    for gt_name in [
         "U",
         "V",
         "W",
+        "intersection",
+        "union",
     ]:
 
         gt = (
-            dendrite_gt[rater]
+            dendrite_gt[gt_name]
         )
 
         iou = compute_iou(
@@ -882,24 +860,30 @@ def evaluate_segmentation_model(
         )
 
         print(
-            f"{rater}: "
+            f"{gt_name}: "
             f"IoU={iou:.4f}, "
             f"Dice={dice:.4f}"
         )
 
         results.append({
 
-            "model": model_name,
+            "model":
+                model_name,
 
-            "structure": "dendrite",
+            "structure":
+                "dendrite",
 
-            "ground_truth": rater,
+            "ground_truth":
+                gt_name,
 
-            "threshold": dend_thr,
+            "threshold":
+                dend_thr,
 
-            "iou": iou,
+            "iou":
+                iou,
 
-            "dice": dice,
+            "dice":
+                dice,
 
         })
 
@@ -912,17 +896,11 @@ def evaluate_segmentation_model(
     print("========================================")
 
     for gt_name in [
-
         "U",
-
         "V",
-
         "W",
-
         "intersection",
-
         "union",
-
     ]:
 
         gt = (
@@ -947,17 +925,23 @@ def evaluate_segmentation_model(
 
         results.append({
 
-            "model": model_name,
+            "model":
+                model_name,
 
-            "structure": "spine",
+            "structure":
+                "spine",
 
-            "ground_truth": gt_name,
+            "ground_truth":
+                gt_name,
 
-            "threshold": spine_thr,
+            "threshold":
+                spine_thr,
 
-            "iou": iou,
+            "iou":
+                iou,
 
-            "dice": dice,
+            "dice":
+                dice,
 
         })
 
@@ -1207,29 +1191,19 @@ def greedy_match_centers(
     if n_pred == 0:
 
         return {
-
             "tp": 0,
-
             "fp": 0,
-
             "fn": n_gt,
-
             "matched_distances_nm": [],
-
         }
 
     if n_gt == 0:
 
         return {
-
             "tp": 0,
-
             "fp": n_pred,
-
             "fn": 0,
-
             "matched_distances_nm": [],
-
         }
 
     pred_nm = pixel_to_nm(
@@ -1318,7 +1292,6 @@ def greedy_match_centers(
     )
 
     return {
-
         "tp":
             tp,
 
@@ -1330,7 +1303,6 @@ def greedy_match_centers(
 
         "matched_distances_nm":
             matched_distances,
-
     }
 
 
@@ -1457,19 +1429,6 @@ def evaluate_spine_detection(
 
     results = []
 
-    # -----------------------------------------------------
-    # Test progressively stronger human agreement.
-    #
-    # >=1:
-    # all benchmark clusters
-    #
-    # >=4:
-    # majority/high-agreement spines
-    #
-    # >=7:
-    # unanimous annotations
-    # -----------------------------------------------------
-
     for min_raters in [
         1,
         2,
@@ -1501,17 +1460,9 @@ def evaluate_spine_detection(
             max_distance_nm=MATCH_DISTANCE_NM,
         )
 
-        tp = (
-            matching["tp"]
-        )
-
-        fp = (
-            matching["fp"]
-        )
-
-        fn = (
-            matching["fn"]
-        )
+        tp = matching["tp"]
+        fp = matching["fp"]
+        fn = matching["fn"]
 
         (
             precision,
@@ -1546,7 +1497,6 @@ def evaluate_spine_detection(
         else:
 
             mean_distance = np.nan
-
             median_distance = np.nan
 
         print("\n----------------------------------------")
@@ -1657,72 +1607,47 @@ def evaluate_spine_detection(
 def main():
 
     parser = argparse.ArgumentParser(
-
         description=(
             "Evaluate real-trained and synthetic-trained "
             "DeepD3 models on the DeepD3 benchmark."
         )
-
     )
 
     parser.add_argument(
-
         "--benchmark-dir",
-
         type=Path,
-
         default=BENCHMARK_DIR,
-
     )
 
     parser.add_argument(
-
         "--real-prediction",
-
         type=Path,
-
         default=DEFAULT_REAL_PRED,
-
     )
 
     parser.add_argument(
-
         "--synthetic-prediction",
-
         type=Path,
-
         default=DEFAULT_SYNTH_PRED,
-
     )
 
     parser.add_argument(
-
         "--output-dir",
-
         type=Path,
-
         default=DEFAULT_OUTPUT_DIR,
-
     )
 
     parser.add_argument(
-
         "--thresholds",
-
         type=Path,
-
         default=DEFAULT_THRESHOLDS,
-
         help=(
             "JSON file containing thresholds selected on "
             "the synthetic validation dataset."
         ),
-
     )
 
-    args = (
-        parser.parse_args()
-    )
+    args = parser.parse_args()
 
     benchmark_dir = (
         args.benchmark_dir
@@ -1771,7 +1696,6 @@ def main():
         args.synthetic_prediction,
 
         args.thresholds,
-
     ]
 
     for path in required_files:
@@ -1879,9 +1803,7 @@ def main():
 
             selected_thresholds=
                 selected_thresholds,
-
         )
-
     )
 
     segmentation_results.extend(
@@ -1908,9 +1830,7 @@ def main():
 
             selected_thresholds=
                 selected_thresholds,
-
         )
-
     )
 
     segmentation_df = pd.DataFrame(
@@ -1941,9 +1861,7 @@ def main():
 
             selected_thresholds=
                 selected_thresholds,
-
         )
-
     )
 
     detection_results.extend(
@@ -1964,9 +1882,7 @@ def main():
 
             selected_thresholds=
                 selected_thresholds,
-
         )
-
     )
 
     detection_df = pd.DataFrame(
@@ -2011,7 +1927,6 @@ def main():
     print("========================================")
 
     print(
-
         segmentation_df[
             [
                 "model",
@@ -2024,7 +1939,6 @@ def main():
         ].to_string(
             index=False
         )
-
     )
 
     # =====================================================
@@ -2036,7 +1950,6 @@ def main():
     print("========================================")
 
     print(
-
         detection_df[
             [
                 "model",
@@ -2055,7 +1968,6 @@ def main():
         ].to_string(
             index=False
         )
-
     )
 
     print("\nSaved:")
@@ -2072,5 +1984,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
