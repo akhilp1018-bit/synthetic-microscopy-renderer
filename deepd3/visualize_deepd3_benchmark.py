@@ -2,50 +2,36 @@
 visualize_deepd3_benchmark.py
 -----------------------------
 
-Visualize real-trained and synthetic-trained DeepD3 predictions
-on a representative region of the real DeepD3 benchmark.
+Create a qualitative comparison of real-trained and synthetic-trained
+DeepD3 models on the real DeepD3 benchmark.
 
-The figure compares the benchmark image, expert annotation
-intersection (U ∩ V ∩ W), real-trained DeepD3 prediction, and
-synthetic-trained DeepD3 prediction for spines and dendrites.
+Rows:
+    (a) Spine segmentation
+    (b) Dendrite segmentation
+    (c) Spine detection
 
+Columns:
+    1. Real benchmark image
+    2. Expert annotation
+    3. Real-trained DeepD3
+    4. Synthetic-trained DeepD3
 
-Usage
------
+For segmentation:
+    Expert annotation = intersection of U, V and W.
 
-Run from the repository root:
+For spine detection:
+    Expert annotation = spine clusters identified by all seven raters.
+
+The same frozen validation thresholds and the same peak-detection
+procedure used for quantitative benchmark evaluation are used here.
+
+Run from repository root:
 
     python deepd3/visualize_deepd3_benchmark.py
 
+Output:
 
-Input
------
-
-benchmarks/deepd3/
-├── DeepD3_Benchmark.tif
-├── Segmentation_U.mask
-├── Segmentation_V.mask
-├── Segmentation_W.mask
-├── Dendrite_U.swc
-├── Dendrite_V.swc
-├── Dendrite_W.swc
-└── predictions/
-    ├── real_32F_94nm.prediction
-    └── synthetic_32F_94nm.prediction
-
-
-Output
-------
-
-benchmarks/deepd3/qualitative/
-└── deepd3_benchmark_comparison.png
-
-
-Important
----------
-
-The same frozen segmentation thresholds used for quantitative
-benchmark evaluation are used for visualization.
+    benchmarks/deepd3/qualitative/deepd3_benchmark_comparison.png
 """
 
 from pathlib import Path
@@ -63,6 +49,12 @@ from deepd3.core.dendrite import (
 )
 
 
+from evaluate_deepd3_benchmark import (
+    load_benchmark_spine_centers,
+    detect_spine_peaks,
+)
+
+
 # =========================================================
 # Paths
 # =========================================================
@@ -72,6 +64,11 @@ BENCHMARK_DIR = Path("benchmarks/deepd3")
 IMAGE_PATH = (
     BENCHMARK_DIR
     / "DeepD3_Benchmark.tif"
+)
+
+ANNOTATION_CSV = (
+    BENCHMARK_DIR
+    / "Annotations_and_Clusters.csv"
 )
 
 REAL_PRED_PATH = (
@@ -86,76 +83,25 @@ SYNTH_PRED_PATH = (
     / "synthetic_32F_94nm.prediction"
 )
 
-OUTPUT_DIR = (
-    BENCHMARK_DIR
-    / "qualitative"
-)
-
 THRESHOLDS_PATH = Path(
     "outputs/synthetic_dataset_v1/"
     "deepd3_evaluation/validation/"
     "selected_thresholds.json"
 )
 
+OUTPUT_DIR = (
+    BENCHMARK_DIR
+    / "qualitative"
+)
 
-# =========================================================
-# Frozen segmentation thresholds
-# =========================================================
-
-def load_frozen_thresholds(path: Path):
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Frozen threshold file not found: {path}\n"
-            "Run the synthetic validation evaluation first."
-        )
-
-    with path.open("r", encoding="utf-8") as f:
-        thresholds = json.load(f)
-
-    required_models = [
-        "32F_94nm",
-        "synthetic_32F_94nm",
-    ]
-
-    for model_name in required_models:
-        if model_name not in thresholds:
-            raise KeyError(
-                f"Missing model '{model_name}' in {path}"
-            )
-
-        for key in [
-            "dendrite_segmentation",
-            "spine_segmentation",
-        ]:
-            if key not in thresholds[model_name]:
-                raise KeyError(
-                    f"Missing threshold '{key}' for "
-                    f"'{model_name}' in {path}"
-                )
-
-    real = thresholds["32F_94nm"]
-    synthetic = thresholds["synthetic_32F_94nm"]
-
-    return {
-        "real_dendrite": float(
-            real["dendrite_segmentation"]
-        ),
-        "real_spine": float(
-            real["spine_segmentation"]
-        ),
-        "synthetic_dendrite": float(
-            synthetic["dendrite_segmentation"]
-        ),
-        "synthetic_spine": float(
-            synthetic["spine_segmentation"]
-        ),
-    }
+OUTPUT_PATH = (
+    OUTPUT_DIR
+    / "deepd3_benchmark_comparison.png"
+)
 
 
 # =========================================================
-# Selected benchmark region
-# Previous crop 02
+# Representative benchmark region
 # =========================================================
 
 Z_START = 30
@@ -169,16 +115,96 @@ X1 = 900
 
 
 # =========================================================
-# Prediction loading
+# Load frozen validation thresholds
+# =========================================================
+
+def load_frozen_thresholds(path):
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Threshold file not found: {path}"
+        )
+
+    with path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+
+        selected = json.load(file)
+
+    real = selected[
+        "32F_94nm"
+    ]
+
+    synthetic = selected[
+        "synthetic_32F_94nm"
+    ]
+
+    thresholds = {
+
+        "real_dendrite":
+            float(
+                real[
+                    "dendrite_segmentation"
+                ]
+            ),
+
+        "real_spine":
+            float(
+                real[
+                    "spine_segmentation"
+                ]
+            ),
+
+        "real_detection":
+            float(
+                real[
+                    "spine_detection"
+                ]
+            ),
+
+        "synthetic_dendrite":
+            float(
+                synthetic[
+                    "dendrite_segmentation"
+                ]
+            ),
+
+        "synthetic_spine":
+            float(
+                synthetic[
+                    "spine_segmentation"
+                ]
+            ),
+
+        "synthetic_detection":
+            float(
+                synthetic[
+                    "spine_detection"
+                ]
+            ),
+    }
+
+    return thresholds
+
+
+# =========================================================
+# Load DeepD3 predictions
 # =========================================================
 
 def load_prediction(path):
 
-    print(f"\nLoading prediction: {path}")
+    print("\nLoading prediction:")
+    print(path)
 
-    data = fl.load(path)
+    data = fl.load(
+        path
+    )
 
-    if isinstance(data, dict) and "prediction" in data:
+    if (
+        isinstance(data, dict)
+        and "prediction" in data
+    ):
 
         prediction = np.asarray(
             data["prediction"]
@@ -203,7 +229,9 @@ def load_prediction(path):
 
     else:
 
-        prediction = np.asarray(data)
+        prediction = np.asarray(
+            data
+        )
 
         if (
             prediction.ndim != 4
@@ -217,26 +245,55 @@ def load_prediction(path):
         dendrite = prediction[..., 0]
         spine = prediction[..., 1]
 
-    print("Dendrite shape:", dendrite.shape)
-    print("Spine shape   :", spine.shape)
+    dendrite = np.nan_to_num(
+        dendrite,
+        nan=0.0,
+        posinf=1.0,
+        neginf=0.0,
+    )
 
-    return dendrite, spine
+    spine = np.nan_to_num(
+        spine,
+        nan=0.0,
+        posinf=1.0,
+        neginf=0.0,
+    )
+
+    print(
+        "Dendrite shape:",
+        dendrite.shape,
+    )
+
+    print(
+        "Spine shape   :",
+        spine.shape,
+    )
+
+    return (
+        dendrite,
+        spine,
+    )
 
 
 # =========================================================
-# Spine GT
+# Spine segmentation GT
 # =========================================================
 
 def load_spine_mask(path):
 
-    data = fl.load(path)
+    data = fl.load(
+        path
+    )
 
     mask = np.asarray(
         data["mask"]
     )
 
-    # Stored as Z,X,Y
-    # Convert to Z,Y,X
+    # Benchmark mask storage:
+    # Z, X, Y
+    #
+    # Convert to:
+    # Z, Y, X
 
     mask = mask.transpose(
         0,
@@ -250,22 +307,31 @@ def load_spine_mask(path):
 def load_spine_intersection():
 
     U = load_spine_mask(
-        BENCHMARK_DIR / "Segmentation_U.mask"
+        BENCHMARK_DIR
+        / "Segmentation_U.mask"
     )
 
     V = load_spine_mask(
-        BENCHMARK_DIR / "Segmentation_V.mask"
+        BENCHMARK_DIR
+        / "Segmentation_V.mask"
     )
 
     W = load_spine_mask(
-        BENCHMARK_DIR / "Segmentation_W.mask"
+        BENCHMARK_DIR
+        / "Segmentation_W.mask"
     )
 
-    intersection = U & V & W
+    intersection = (
+        U
+        & V
+        & W
+    )
 
     print(
-        "\nSpine GT intersection voxels:",
-        int(intersection.sum()),
+        "\nSpine intersection voxels:",
+        int(
+            intersection.sum()
+        ),
     )
 
     return intersection
@@ -281,15 +347,24 @@ def rasterize_dendrite_swc(
     spacing=(1, 1, 1),
 ):
 
-    print(f"\nRasterizing: {swc_path}")
+    print(
+        "\nRasterizing:",
+        swc_path,
+    )
 
     converter = DendriteSWC(
-        spacing=list(spacing)
+        spacing=list(
+            spacing
+        )
     )
 
     converter.open(
-        str(swc_path),
-        str(reference_tif),
+        str(
+            swc_path
+        ),
+        str(
+            reference_tif
+        ),
     )
 
     converter.stack = np.zeros(
@@ -304,11 +379,15 @@ def rasterize_dendrite_swc(
         for x in swc.index
     ]
 
-    node_id_set = set(node_ids)
+    node_id_set = set(
+        node_ids
+    )
 
     for node_id in node_ids:
 
-        row = swc.loc[node_id]
+        row = swc.loc[
+            node_id
+        ]
 
         parent_id = int(
             row.parent
@@ -353,17 +432,20 @@ def rasterize_dendrite_swc(
 def load_dendrite_intersection():
 
     U = rasterize_dendrite_swc(
-        BENCHMARK_DIR / "Dendrite_U.swc",
+        BENCHMARK_DIR
+        / "Dendrite_U.swc",
         IMAGE_PATH,
     )
 
     V = rasterize_dendrite_swc(
-        BENCHMARK_DIR / "Dendrite_V.swc",
+        BENCHMARK_DIR
+        / "Dendrite_V.swc",
         IMAGE_PATH,
     )
 
     W = rasterize_dendrite_swc(
-        BENCHMARK_DIR / "Dendrite_W.swc",
+        BENCHMARK_DIR
+        / "Dendrite_W.swc",
         IMAGE_PATH,
     )
 
@@ -374,15 +456,17 @@ def load_dendrite_intersection():
     )
 
     print(
-        "\nDendrite GT intersection voxels:",
-        int(intersection.sum()),
+        "\nDendrite intersection voxels:",
+        int(
+            intersection.sum()
+        ),
     )
 
     return intersection
 
 
 # =========================================================
-# Helpers
+# Image helpers
 # =========================================================
 
 def max_project(volume):
@@ -405,18 +489,19 @@ def crop(image):
 
 def normalize_image(image):
 
-    image = image.astype(
-        np.float32
+    image = np.asarray(
+        image,
+        dtype=np.float32,
     )
 
     lo = np.percentile(
         image,
-        1
+        1,
     )
 
     hi = np.percentile(
         image,
-        99.5
+        99.5,
     )
 
     if hi <= lo:
@@ -440,6 +525,108 @@ def normalize_image(image):
 
 
 # =========================================================
+# Detection helpers
+# =========================================================
+
+def centers_in_selected_region(
+    centers_zyx,
+):
+
+    centers_zyx = np.asarray(
+        centers_zyx,
+        dtype=np.float64,
+    )
+
+    selected = []
+
+    for center in centers_zyx:
+
+        z, y, x = center
+
+        if not (
+            Z_START <= z < Z_END
+            and
+            Y0 <= y < Y1
+            and
+            X0 <= x < X1
+        ):
+            continue
+
+        selected.append(
+            [
+                z,
+                y - Y0,
+                x - X0,
+            ]
+        )
+
+    if not selected:
+
+        return np.empty(
+            (0, 3),
+            dtype=np.float64,
+        )
+
+    return np.asarray(
+        selected,
+        dtype=np.float64,
+    )
+
+
+def show_gt_centers(
+    ax,
+    image,
+    centers,
+):
+
+    ax.imshow(
+        image,
+        cmap="gray",
+        vmin=0,
+        vmax=1,
+    )
+
+    if len(centers) == 0:
+        return
+
+    ax.scatter(
+        centers[:, 2],
+        centers[:, 1],
+        marker="o",
+        facecolors="none",
+        edgecolors="cyan",
+        s=45,
+        linewidths=1.2,
+    )
+
+
+def show_prediction_centers(
+    ax,
+    image,
+    centers,
+):
+
+    ax.imshow(
+        image,
+        cmap="gray",
+        vmin=0,
+        vmax=1,
+    )
+
+    if len(centers) == 0:
+        return
+
+    ax.scatter(
+        centers[:, 2],
+        centers[:, 1],
+        marker="x",
+        color="magenta",
+        s=42,
+        linewidths=1.3,
+    )
+
+
+# =========================================================
 # Main
 # =========================================================
 
@@ -450,27 +637,85 @@ def main():
         exist_ok=True,
     )
 
-    thresholds = load_frozen_thresholds(
-        THRESHOLDS_PATH
+    # -----------------------------------------------------
+    # Frozen thresholds
+    # -----------------------------------------------------
+
+    thresholds = (
+        load_frozen_thresholds(
+            THRESHOLDS_PATH
+        )
     )
 
-    print("Frozen thresholds:")
     print(
-        "  Real-trained:      "
-        f"dendrite={thresholds['real_dendrite']:.4f}, "
-        f"spine={thresholds['real_spine']:.4f}"
+        "\n========================================"
     )
+
     print(
-        "  Synthetic-trained: "
-        f"dendrite={thresholds['synthetic_dendrite']:.4f}, "
-        f"spine={thresholds['synthetic_spine']:.4f}"
+        "Frozen validation thresholds"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "Real-trained:"
+    )
+
+    print(
+        "  Dendrite segmentation:",
+        thresholds[
+            "real_dendrite"
+        ],
+    )
+
+    print(
+        "  Spine segmentation   :",
+        thresholds[
+            "real_spine"
+        ],
+    )
+
+    print(
+        "  Spine detection      :",
+        thresholds[
+            "real_detection"
+        ],
+    )
+
+    print(
+        "\nSynthetic-trained:"
+    )
+
+    print(
+        "  Dendrite segmentation:",
+        thresholds[
+            "synthetic_dendrite"
+        ],
+    )
+
+    print(
+        "  Spine segmentation   :",
+        thresholds[
+            "synthetic_spine"
+        ],
+    )
+
+    print(
+        "  Spine detection      :",
+        thresholds[
+            "synthetic_detection"
+        ],
     )
 
     # -----------------------------------------------------
-    # Load benchmark
+    # Benchmark image
     # -----------------------------------------------------
 
-    print("Loading benchmark image...")
+    print(
+        "\nLoading benchmark image..."
+    )
 
     benchmark = tifffile.imread(
         IMAGE_PATH
@@ -482,59 +727,203 @@ def main():
     )
 
     # -----------------------------------------------------
-    # Load predictions
+    # Predictions
     # -----------------------------------------------------
 
-    real_dend_prob, real_spine_prob = load_prediction(
+    (
+        real_dend_prob,
+        real_spine_prob,
+    ) = load_prediction(
         REAL_PRED_PATH
     )
 
-    synth_dend_prob, synth_spine_prob = load_prediction(
+    (
+        synth_dend_prob,
+        synth_spine_prob,
+    ) = load_prediction(
         SYNTH_PRED_PATH
     )
 
     # -----------------------------------------------------
-    # Load expert GT intersections
+    # Shape check
     # -----------------------------------------------------
 
-    spine_gt = load_spine_intersection()
+    for name, volume in [
 
-    dendrite_gt = load_dendrite_intersection()
+        (
+            "real dendrite",
+            real_dend_prob,
+        ),
+
+        (
+            "real spine",
+            real_spine_prob,
+        ),
+
+        (
+            "synthetic dendrite",
+            synth_dend_prob,
+        ),
+
+        (
+            "synthetic spine",
+            synth_spine_prob,
+        ),
+
+    ]:
+
+        if volume.shape != benchmark.shape:
+
+            raise RuntimeError(
+                f"{name} shape {volume.shape} "
+                f"does not match benchmark "
+                f"{benchmark.shape}"
+            )
 
     # -----------------------------------------------------
-    # Threshold predictions
+    # Segmentation GT
+    # -----------------------------------------------------
+
+    spine_gt = (
+        load_spine_intersection()
+    )
+
+    dendrite_gt = (
+        load_dendrite_intersection()
+    )
+
+    # -----------------------------------------------------
+    # Segmentation predictions
     # -----------------------------------------------------
 
     real_spine_mask = (
         real_spine_prob
-        >= thresholds["real_spine"]
+        >= thresholds[
+            "real_spine"
+        ]
     )
 
     synth_spine_mask = (
         synth_spine_prob
-        >= thresholds["synthetic_spine"]
+        >= thresholds[
+            "synthetic_spine"
+        ]
     )
 
     real_dend_mask = (
         real_dend_prob
-        >= thresholds["real_dendrite"]
+        >= thresholds[
+            "real_dendrite"
+        ]
     )
 
     synth_dend_mask = (
         synth_dend_prob
-        >= thresholds["synthetic_dendrite"]
+        >= thresholds[
+            "synthetic_dendrite"
+        ]
+    )
+
+    # =====================================================
+    # Spine detection
+    # =====================================================
+
+    # Load exactly the same multi-rater benchmark clusters
+    # used in quantitative evaluation.
+
+    cluster_df = (
+        load_benchmark_spine_centers(
+            ANNOTATION_CSV
+        )
+    )
+
+    # Thesis comparison uses the strictest benchmark GT:
+    # clusters identified by all seven raters.
+
+    gt_subset = cluster_df[
+        cluster_df[
+            "n_raters"
+        ] >= 7
+    ].copy()
+
+    gt_centers = gt_subset[
+        [
+            "z",
+            "y",
+            "x",
+        ]
+    ].to_numpy(
+        dtype=np.float64
+    )
+
+    # Use EXACTLY the same peak-detection function
+    # as quantitative benchmark evaluation.
+
+    real_detection_centers = (
+        detect_spine_peaks(
+            real_spine_prob,
+            thresholds[
+                "real_detection"
+            ],
+        )
+    )
+
+    synth_detection_centers = (
+        detect_spine_peaks(
+            synth_spine_prob,
+            thresholds[
+                "synthetic_detection"
+            ],
+        )
+    )
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "Full benchmark detection counts"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "7-rater GT centers          :",
+        len(
+            gt_centers
+        ),
+    )
+
+    print(
+        "Real-trained predicted peaks:",
+        len(
+            real_detection_centers
+        ),
+    )
+
+    print(
+        "Synthetic-trained peaks     :",
+        len(
+            synth_detection_centers
+        ),
     )
 
     # -----------------------------------------------------
-    # Projection + crop
+    # Create MIPs for selected Z region
     # -----------------------------------------------------
 
-    benchmark_crop = crop(
+    benchmark_mip = (
         normalize_image(
             max_project(
                 benchmark
             )
         )
+    )
+
+    benchmark_crop = crop(
+        benchmark_mip
     )
 
     spine_gt_crop = crop(
@@ -573,137 +962,279 @@ def main():
         )
     )
 
+    # -----------------------------------------------------
+    # Detection centers inside displayed region
+    # -----------------------------------------------------
+
+    gt_crop_centers = (
+        centers_in_selected_region(
+            gt_centers
+        )
+    )
+
+    real_crop_centers = (
+        centers_in_selected_region(
+            real_detection_centers
+        )
+    )
+
+    synth_crop_centers = (
+        centers_in_selected_region(
+            synth_detection_centers
+        )
+    )
+
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "Detection centers in displayed region"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "Expert GT        :",
+        len(
+            gt_crop_centers
+        ),
+    )
+
+    print(
+        "Real-trained     :",
+        len(
+            real_crop_centers
+        ),
+    )
+
+    print(
+        "Synthetic-trained:",
+        len(
+            synth_crop_centers
+        ),
+    )
+
     # =====================================================
     # Plot
     # =====================================================
 
     fig, axes = plt.subplots(
-        2,
+        3,
         4,
-        figsize=(16, 8),
+        figsize=(
+            16,
+            11,
+        ),
     )
 
-    # -----------------------------------------------------
-    # Spine row
-    # -----------------------------------------------------
+    # =====================================================
+    # Row (a): Spine segmentation
+    # =====================================================
 
     axes[0, 0].imshow(
         benchmark_crop,
         cmap="gray",
-    )
-
-    axes[0, 0].set_title(
-        "Real benchmark"
+        vmin=0,
+        vmax=1,
     )
 
     axes[0, 1].imshow(
         spine_gt_crop,
         cmap="gray",
-    )
-
-    axes[0, 1].set_title(
-        "Expert intersection\n(U ∩ V ∩ W)"
+        vmin=0,
+        vmax=1,
     )
 
     axes[0, 2].imshow(
         real_spine_crop,
         cmap="gray",
-    )
-
-    axes[0, 2].set_title(
-        "Real-trained\nDeepD3"
+        vmin=0,
+        vmax=1,
     )
 
     axes[0, 3].imshow(
         synth_spine_crop,
         cmap="gray",
+        vmin=0,
+        vmax=1,
     )
 
-    axes[0, 3].set_title(
-        "Synthetic-trained\nDeepD3"
-    )
-
-    # -----------------------------------------------------
-    # Dendrite row
-    # -----------------------------------------------------
+    # =====================================================
+    # Row (b): Dendrite segmentation
+    # =====================================================
 
     axes[1, 0].imshow(
         benchmark_crop,
         cmap="gray",
-    )
-
-    axes[1, 0].set_title(
-        "Real benchmark"
+        vmin=0,
+        vmax=1,
     )
 
     axes[1, 1].imshow(
         dendrite_gt_crop,
         cmap="gray",
-    )
-
-    axes[1, 1].set_title(
-        "Expert intersection\n(U ∩ V ∩ W)"
+        vmin=0,
+        vmax=1,
     )
 
     axes[1, 2].imshow(
         real_dend_crop,
         cmap="gray",
-    )
-
-    axes[1, 2].set_title(
-        "Real-trained\nDeepD3"
+        vmin=0,
+        vmax=1,
     )
 
     axes[1, 3].imshow(
         synth_dend_crop,
         cmap="gray",
+        vmin=0,
+        vmax=1,
     )
 
-    axes[1, 3].set_title(
-        "Synthetic-trained\nDeepD3"
+    # =====================================================
+    # Row (c): Spine detection
+    # =====================================================
+
+    # Original benchmark image
+
+    axes[2, 0].imshow(
+        benchmark_crop,
+        cmap="gray",
+        vmin=0,
+        vmax=1,
     )
 
-    # -----------------------------------------------------
+    # Expert 7-rater centers
+
+    show_gt_centers(
+        axes[2, 1],
+        benchmark_crop,
+        gt_crop_centers,
+    )
+
+    # Real-trained predicted centers
+
+    show_prediction_centers(
+        axes[2, 2],
+        benchmark_crop,
+        real_crop_centers,
+    )
+
+    # Synthetic-trained predicted centers
+
+    show_prediction_centers(
+        axes[2, 3],
+        benchmark_crop,
+        synth_crop_centers,
+    )
+
+    # =====================================================
+    # Column titles
+    # =====================================================
+
+    column_titles = [
+
+        "Real benchmark",
+
+        "Expert annotation",
+
+        "Real-trained\nDeepD3",
+
+        "Synthetic-trained\nDeepD3",
+
+    ]
+
+    for column, title in enumerate(
+        column_titles
+    ):
+
+        axes[
+            0,
+            column,
+        ].set_title(
+            title,
+            fontsize=13,
+        )
+
+    # =====================================================
     # Row labels
-    # -----------------------------------------------------
+    # =====================================================
 
-    axes[0, 0].set_ylabel(
-        "Spine",
-        fontsize=14,
+    axes[
+        0,
+        0,
+    ].set_ylabel(
+        "(a) Spine segmentation",
+        fontsize=12,
+        labelpad=10,
     )
 
-    axes[1, 0].set_ylabel(
-        "Dendrite",
-        fontsize=14,
+    axes[
+        1,
+        0,
+    ].set_ylabel(
+        "(b) Dendrite segmentation",
+        fontsize=12,
+        labelpad=10,
     )
+
+    axes[
+        2,
+        0,
+    ].set_ylabel(
+        "(c) Spine detection",
+        fontsize=12,
+        labelpad=10,
+    )
+
+    # =====================================================
+    # Remove ticks
+    # =====================================================
 
     for ax in axes.flat:
 
         ax.set_xticks([])
         ax.set_yticks([])
 
-    fig.suptitle(
-        "Representative region from the DeepD3 real benchmark",
-        fontsize=16,
+    # No large figure title.
+    # Explanation will be in the thesis caption.
+
+    fig.tight_layout(
+        pad=1.0,
     )
 
-    fig.tight_layout()
-
-    output_path = (
-        OUTPUT_DIR
-        / "deepd3_benchmark_comparison.png"
-    )
+    # =====================================================
+    # Save
+    # =====================================================
 
     fig.savefig(
-        output_path,
+        OUTPUT_PATH,
         dpi=300,
         bbox_inches="tight",
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
-    print("\nSaved:")
-    print(output_path)
+    print(
+        "\n========================================"
+    )
+
+    print(
+        "Saved qualitative benchmark figure"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print(
+        OUTPUT_PATH
+    )
 
 
 if __name__ == "__main__":

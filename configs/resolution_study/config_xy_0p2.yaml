@@ -1,0 +1,50 @@
+input:
+  mode: single_mesh
+  mesh_path: data/mesh_001/mesh_001.ply
+  scale_to_nm: 1.0
+  recenter: false
+
+output:
+  output_dir: outputs/render_resolution_study/xy_0p2
+  output_name: mesh001_xy_0p2
+
+grid:
+  xy_um_per_px: 0.2
+  z_step_um: 0.5
+  use_roi: false
+  roi_size_um_x: 150.0
+  roi_size_um_y: 150.0
+  margin: 0.05
+  shape_mode: fixed
+  output_shape_zyx: [128, 256, 256]
+
+renderer:
+  method: voxel_grid
+  voxel_grid:
+    labeling_mode: membrane
+    spacing_nm: 200
+    batch_faces: 8192
+    filled_closing_iterations: 1
+
+psf:
+  mode: gaussian_2p
+  excitation_lambda_nm: 920.0
+  na: 1.0
+  refractive_index: 1.33
+  shape_zyx: [13, 65, 65]
+  sigma_scale_xy: 1.0
+  sigma_scale_z: 1.0
+
+noise:
+  enabled: false
+  peak_photons: 500.0
+  read_noise_std: 5.0
+  seed: 0
+  gaussian_chunk_slices: 16
+
+masks:
+  object_rel_threshold: 0.1
+  spine_rel_threshold: 0.1
+  dendrite_rel_threshold: 0.1
+  save_individual_spine_masks: false
+  save_clean_component_images: false
