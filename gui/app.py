@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("3D Mesh Renderer")
-        self.resize(1400, 900)
+        self.resize(1400, 750)
 
         self.mesh = None
         self.mesh_path = None
@@ -119,7 +119,8 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central_widget)
 
         control_widget = QWidget()
-        control_widget.setMaximumWidth(390)
+        control_widget.setMinimumWidth(500)
+        control_widget.setMaximumWidth(560)
         self.left_layout = QVBoxLayout(control_widget)
 
         self._build_mesh_controls()
@@ -139,8 +140,28 @@ class MainWindow(QMainWindow):
         self.plotter.set_background("white")
         self.plotter.add_axes()
 
+        self.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+            }
+            QPushButton {
+                font-size: 13px;
+                min-height: 30px;
+                padding: 4px 8px;
+            }
+            QSpinBox, QDoubleSpinBox {
+                font-size: 13px;
+                min-height: 28px;
+            }
+            QTextEdit {
+                font-size: 12px;
+            }
+        """)
+
     def _section_label(self, text):
-        self.left_layout.addWidget(QLabel(f"\n{text}"))
+        label = QLabel(f"\n{text}")
+        label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.left_layout.addWidget(label)
 
     def _build_mesh_controls(self):
         self._section_label("Mesh Input")
