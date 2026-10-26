@@ -1,66 +1,105 @@
-
-
 ## Renderer configuration options
 
 The renderer is controlled by YAML configuration files in the `configs/` folder.
 
-The main documented example is:
+```text
+configs/
+├── noise/
+├── resolution_study/
+├── dataset_v1.yaml
+├── default.yaml
+├── mesh_001.yaml
+├── sample_001.yaml
+├── sample_002.yaml
+├── sample_003.yaml
+├── sample_004.yaml
+├── test_gaussian_splatting.yaml
+├── test_noise.yaml
+├── test_voxelgrid_filled.yaml
+└── test_voxelgrid.yaml
+```
+
+### Default example configuration
+
+`default.yaml` provides a general example configuration for the renderer.
+
+Run it from the repository root with:
 
 ```bash
-PYTHONPATH=. python scripts/render.py --config configs/default.yaml
+python scripts/render.py --config configs/default.yaml
 ```
 
 If `python` is not available, use:
 
 ```bash
-PYTHONPATH=. python3 scripts/render.py --config configs/default.yaml
+python3 scripts/render.py --config configs/default.yaml
 ```
 
-### Available config files
+### Sample-specific configurations
+
+To render a specific mesh or labelled sample:
+
+```bash
+python scripts/render.py --config configs/mesh_001.yaml
+python scripts/render.py --config configs/sample_001.yaml
+python scripts/render.py --config configs/sample_002.yaml
+python scripts/render.py --config configs/sample_003.yaml
+python scripts/render.py --config configs/sample_004.yaml
+```
+
+`mesh_001.yaml` uses a single neuronal mesh.
+
+`sample_001.yaml` to `sample_004.yaml` use manually labelled dendrite and individual spine meshes.
+
+### Dataset generation configuration
+
+`dataset_v1.yaml` contains the configuration used for synthetic dataset generation.
+
+```bash
+python scripts/generate_dataset.py --config configs/dataset_v1.yaml
+```
+
+### Parameter-study configurations
+
+The `noise/` directory contains configurations used to study different photon-count and noise conditions.
+
+The `resolution_study/` directory contains configurations used to study spatial sampling and image-resolution settings, including different XY sampling and Z spacing.
+
+These configurations are intended for controlled parameter studies rather than the standard sample-rendering workflow.
+
+### Test and renderer-comparison configurations
+
+The following configurations are used for testing individual rendering and noise settings:
 
 ```text
-  # Known tested scale factors:
-  #   mesh_001   : 1.0
-  #   sample_001 : 1000000.0
-  #   sample_002 : 10000.0
-  #   sample_003 : 1000.0
-  #   sample_004 : 1.0
+test_voxelgrid.yaml
+test_voxelgrid_filled.yaml
+test_gaussian_splatting.yaml
+test_noise.yaml
 ```
 
-### Run a specific sample
+They are mainly used for renderer comparisons, debugging, and controlled experiments.
+
+For example:
 
 ```bash
-PYTHONPATH=. python scripts/render.py --config configs/mesh_001.yaml
-PYTHONPATH=. python scripts/render.py --config configs/sample_001.yaml
-PYTHONPATH=. python scripts/render.py --config configs/sample_002.yaml
-PYTHONPATH=. python scripts/render.py --config configs/sample_003.yaml
-PYTHONPATH=. python scripts/render.py --config configs/sample_004.yaml
+python scripts/render.py --config configs/test_voxelgrid.yaml
+python scripts/render.py --config configs/test_voxelgrid_filled.yaml
+python scripts/render.py --config configs/test_gaussian_splatting.yaml
+python scripts/render.py --config configs/test_noise.yaml
 ```
 
-### Create preview overlays
+### Mesh scale factors
 
-After rendering a sample, preview overlays can be generated with:
+The tested mesh-to-nanometre scale factors are:
 
-```bash
-PYTHONPATH=. python scripts/make_overlay.py --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
+```text
+mesh_001   : 1.0
+sample_001 : 1000000.0
+sample_002 : 10000.0
+sample_003 : 1000.0
+sample_004 : 1.0
 ```
 
-Change the output folder for other samples, for example:
+These values are already defined in the corresponding YAML files through `input.scale_to_nm`.
 
-```bash
-PYTHONPATH=. python scripts/make_overlay.py --output-dir outputs/sample_002/gaussian_2p_voxelgrid_membrane
-```
-
-### FAU HPC note
-
-On the FAU HPC, I currently use my existing thesis environment:
-
-```bash
-PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/render.py --config configs/sample_001.yaml
-```
-
-For preview overlays on the FAU HPC:
-
-```bash
-PYTHONPATH=. /home/hpc/iwb3/iwb3119h/synthetic-spine-sim/thesis_env/bin/python scripts/make_overlay.py --output-dir outputs/sample_001/gaussian_2p_voxelgrid_membrane
-```

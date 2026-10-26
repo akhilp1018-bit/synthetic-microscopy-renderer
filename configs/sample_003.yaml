@@ -13,8 +13,7 @@
 #
 # Reproducible command from repository root:
 #
-#   PYTHONPATH=. python scripts/render.py --config configs/sample_003.yaml
-#
+#   python scripts/render.py --config configs/sample_003.yaml
 #
 # Coordinate convention:
 #   Mesh coordinates: XYZ, interpreted in nanometres after scale_to_nm.
@@ -54,8 +53,7 @@ input:
   #   1.0        if mesh coordinates are already in nm
   #   1000.0     if mesh coordinates are in µm
   #   1000000.0  if mesh coordinates are in mm
-
-
+  #
   # Known tested scale factors:
   #   mesh_001   : 1.0
   #   sample_001 : 1000000.0
@@ -63,7 +61,6 @@ input:
   #   sample_003 : 1000.0
   #   sample_004 : 1.0
   scale_to_nm: 1000
-
 
   # If true, subtract the mean vertex position before rendering.
   # Usually keep false when meshes are already in a meaningful coordinate system.
@@ -175,11 +172,11 @@ renderer:
   # Options:
   #
   #   membrane
-  #     Render surface-like membrane density from mesh faces.
+  #     Surface-area-weighted membrane fluorescence density.
   #
-  #   pseudofilled
-  #     Start from membrane density and apply stronger smoothing to make the
-  #     object thicker and more volume-like.
+  #   filled
+  #     Approximate volume fluorescence obtained from the
+  #     voxelized surface using closing and hole filling.
   #
   # Note:
   #   gaussian_splatting currently supports membrane mode only.
@@ -193,6 +190,8 @@ renderer:
     batch_faces: 2048
     labeling_mode: membrane
     filled_closing_iterations: 1
+
+
 splatting:
   # ------------------------------------------------------------
   # Gaussian splatting settings
@@ -214,6 +213,8 @@ splatting:
   spacing_nm: 200
 
   # Anisotropic Gaussian widths in physical nanometres.
+  sigma_tangent_nm: 100.0
+  sigma_normal_nm: 50.0
 
   # If true, apply calibrated PSF after Gaussian splatting.
   # If false, output is only the splatted density volume.
@@ -228,8 +229,6 @@ splatting:
   points_per_batch: 50000
 
 
-  sigma_tangent_nm: 100.0
-  sigma_normal_nm: 50.0
 psf:
   # ------------------------------------------------------------
   # Point spread function
@@ -260,8 +259,9 @@ psf:
   sigma_scale_xy: 1.0
   sigma_scale_z: 1.0
 
-
   excitation_lambda_nm: 920.0
+
+
 noise:
   # ------------------------------------------------------------
   # Noise model

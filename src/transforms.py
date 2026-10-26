@@ -14,7 +14,12 @@ import trimesh
 
 
 def random_rotation_matrix(rng=None):
-    """Create a random 3D rotation matrix."""
+    """
+    Create a random 3D rotation matrix.
+
+    Independent rotation angles are sampled uniformly in degrees for the
+    X, Y, and Z axes.
+    """
     if rng is None:
         rng = np.random.default_rng()
 
@@ -61,7 +66,12 @@ def rotate_labelled_components(
     random_orientation=True,
     rng=None,
 ):
-    """Apply the SAME random rotation to dendrite and all spine meshes."""
+    """
+    Apply the same rotation to the dendrite and all associated spine meshes.
+
+    Using a shared rotation origin and rotation matrix preserves the relative
+    spatial arrangement between the dendrite and its labelled spines.
+    """
     dendrite_path = Path(dendrite_path)
     spine_paths = [Path(p) for p in spine_paths]
     output_dir = Path(output_dir)

@@ -1,6 +1,6 @@
 # Reproducible command from repository root:
 #
-#   PYTHONPATH=. python scripts/generate_dataset.py --config configs/dataset_v1.yaml
+#   python scripts/generate_dataset.py --config configs/dataset_v1.yaml
 #
 # This config is intended for dataset generation only, not scripts/render.py.
 

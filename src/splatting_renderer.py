@@ -156,6 +156,9 @@ def _splat_points_to_volume(
     the physical surface normal. The physical displacement from each sampled
     surface point is evaluated at voxel centres, so anisotropic voxel spacing
     does not distort the Gaussian orientation or covariance.
+
+    When surface_area_nm2 is provided, the final splatted density is normalized
+    so that its total intensity corresponds to the physical mesh surface area.
     """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -341,6 +344,7 @@ def _splat_points_to_volume(
 
     return vol
 
+
 def render_single_mesh_splatting(
     mesh_path,
     grid,
@@ -359,7 +363,7 @@ def render_single_mesh_splatting(
         -> optional PSF convolution
 
     Returns:
-        Rendered volume in ZYX order.
+        Rendered float32 volume in ZYX order.
     """
     renderer_cfg = config.get("renderer", {})
     splat_cfg = config.get("splatting", {})

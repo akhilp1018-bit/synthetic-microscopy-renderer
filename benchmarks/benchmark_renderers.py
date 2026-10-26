@@ -19,7 +19,7 @@ would not warm the CUDA context of the measured process.
 
 Noise is disabled because this benchmark measures renderer performance.
 Run from the repository root:
-    PYTHONPATH=. python benchmarks/benchmark_renderers.py
+    python benchmarks/benchmark_renderers.py
 """
 
 import argparse

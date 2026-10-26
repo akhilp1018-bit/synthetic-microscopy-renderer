@@ -4,7 +4,7 @@
 #
 # Reproducible command from repository root:
 #
-#   PYTHONPATH=. python scripts/render.py --config configs/default.yaml
+#   python scripts/render.py --config configs/default.yaml
 #
 # Coordinate convention:
 #   Mesh coordinates: XYZ, interpreted in nanometres after scale_to_nm.

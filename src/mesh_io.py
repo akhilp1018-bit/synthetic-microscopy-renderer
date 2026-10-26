@@ -66,6 +66,7 @@ def _validate_transform(world_to_local_4x4):
 
 
 def _ply_scalar_dtype(name, endian="<"):
+    """Return the NumPy dtype corresponding to a PLY scalar type."""
     mapping = {
         "char": "i1", "int8": "i1", "uchar": "u1", "uint8": "u1",
         "short": "i2", "int16": "i2", "ushort": "u2", "uint16": "u2",
@@ -342,6 +343,7 @@ def prepare_mesh_for_sim(
 
 
 def transform_mesh_to_local_coordinates(mesh_path: str | Path, world_to_local_4x4) -> str:
+    """Transform a mesh from world coordinates into local ROI coordinates."""
     return prepare_mesh_for_sim(
         mesh_path=mesh_path,
         scale_to_nm=1.0,
@@ -383,6 +385,7 @@ def get_mesh_anchor_nm(mesh_path, scale_to_nm=1.0, recenter=False):
 
 
 def load_bbox_nm(mesh_path: str | Path) -> tuple[float, float, float, float, float, float]:
+    """Return the XYZ bounding box of one mesh in nanometres."""
     mesh = load_mesh(mesh_path)
     bounds = mesh.bounds
     return (
@@ -392,6 +395,7 @@ def load_bbox_nm(mesh_path: str | Path) -> tuple[float, float, float, float, flo
 
 
 def get_combined_bbox_nm(mesh_paths: list[str | Path]) -> dict:
+    """Return the combined XYZ bounding box of multiple meshes in nanometres."""
     bboxes = [load_bbox_nm(p) for p in mesh_paths]
     return {
         "xmin": min(b[0] for b in bboxes),
@@ -408,6 +412,7 @@ def find_labelled_component_paths(
     dendrite_pattern: str = "dendrite*.ply",
     spine_pattern: str = "spine*.ply",
 ) -> tuple[Path, list[Path]]:
+    """Locate the dendrite mesh and individual spine meshes in a labelled directory."""
     labelled_dir = Path(labelled_dir)
     if not labelled_dir.exists():
         raise FileNotFoundError(f"Labelled mesh folder not found: {labelled_dir}")

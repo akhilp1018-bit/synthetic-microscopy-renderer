@@ -27,13 +27,13 @@ python gui/app.py
 3. Select the output image shape `[Z, Y, X]`.
 4. Select the XY and Z sampling.
 5. Add the rendering ROI.
-6. Move the ROI to the desired position on the mesh.
+6. Move or rotate the ROI to the desired position on the mesh.
 7. Export the renderer configuration.
 8. Run the render or add the configuration to the render queue.
 
 ## Rendering subvolume
 
-For fixed-grid rendering, the physical size of the selected subvolume is determined by the output shape and spatial sampling.
+For fixed-grid rendering, the physical extent of the selected subvolume is determined by the output shape and spatial sampling.
 
 For example:
 
@@ -43,17 +43,19 @@ xy_um_per_px: 0.094
 z_step_um: 0.5
 ```
 
-This corresponds to the nominal physical rendering volume:
+Using the distance between the first and last voxel centres, this corresponds to:
 
 ```text
-X = 128 × 0.094 = 12.032 µm
-Y = 128 × 0.094 = 12.032 µm
-Z = 64 × 0.5   = 32.000 µm
+X = 127 × 0.094 = 11.938 µm
+Y = 127 × 0.094 = 11.938 µm
+Z = 63 × 0.5   = 31.500 µm
 ```
 
-The selected position is exported as `grid.center_xyz_nm`.
+For an unrotated ROI, the selected position is exported as `grid.center_xyz_nm`.
 
-The selected cube bounds are also stored in the exported configuration as `grid.selected_bounds_xyz_nm` for reproducibility.
+If the ROI is rotated, the GUI exports the corresponding
+`grid.roi_world_to_local_4x4` transformation so that the renderer can reproduce
+the selected ROI orientation.
 
 ## Exported configuration
 
@@ -61,13 +63,6 @@ The GUI creates a complete YAML configuration that can also be used directly wit
 
 ```bash
 python scripts/render.py --config gui/configs/<exported_config.yaml>
-```
-
-On Windows PowerShell:
-
-```powershell
-$env:PYTHONPATH="."
-python scripts/render.py --config gui/configs/gui_render.yaml
 ```
 
 ## Render queue

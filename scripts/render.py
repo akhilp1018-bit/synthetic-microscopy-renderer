@@ -16,8 +16,10 @@ Supported input modes:
 Supported renderers:
     - voxel_grid
     - gaussian_splatting
-"""
 
+Run from the repository root:
+    python scripts/render.py --config configs/default.yaml
+"""
 import argparse
 import sys
 import time
@@ -25,9 +27,6 @@ from pathlib import Path
 
 import torch
 
-
-# Allow imports from the repository root when running:
-# PYTHONPATH=. python scripts/render.py --config configs/default.yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 

@@ -37,7 +37,6 @@ installation for your operating system and, if applicable, CUDA version:
 
 https://pytorch.org/get-started/locally/
 
-
 Then install the remaining dependencies:
 
 ```bash
@@ -55,9 +54,7 @@ H01 human cortex electron microscopy dataset.
 The input mesh data are not included in the repository because of their size.
 They can be downloaded from:
 
-```text
-https://faubox.rrze.uni-erlangen.de/getlink/fi3WMHaMpdnQ24JGZc6LFE/
-```
+[Download the input mesh data](https://faubox.rrze.uni-erlangen.de/getlink/fi3WMHaMpdnQ24JGZc6LFE/)
 
 After downloading, place the files in the project `data/` directory:
 
@@ -131,8 +128,8 @@ synthetic-microscopy-renderer/
 ├── configs/           # Rendering and dataset configuration files
 ├── deepd3/            # DeepD3 evaluation and visualization scripts
 ├── gui/               # Interactive mesh visualization utilities
-├── psfs/              # Example point spread functions
-├── scripts/           # Main pipeline entry points: renderer.py and generate_dataset.py
+├── psfs/              # Example PSFs
+├── scripts/           # Main pipeline entry points: render.py and generate_dataset.py
 ├── src/               # Core rendering implementation
 ├── README.md
 ├── requirements.txt
@@ -185,27 +182,27 @@ python gui/app.py
 ```
 
 The same rendering pipeline can also be executed from the command line using
-`renderer.py`.
+`render.py`.
 
 ### 4. Render a single synthetic microscopy volume
 
-For an individual rendering experiment, use `renderer.py` with a YAML
+For an individual rendering experiment, use `render.py` with a YAML
 configuration file.
 
 Example:
 
 ```bash
-python scripts/renderer.py --config configs/<config_file>.yaml
+python scripts/render.py --config configs/<config_file>.yaml
 ```
 
 For example:
 
 ```bash
 # Single mesh
-python scripts/renderer.py --config configs/mesh_001.yaml
+python scripts/render.py --config configs/mesh_001.yaml
 
 # Labelled dendrite and spine components
-python scripts/renderer.py --config configs/sample_001.yaml
+python scripts/render.py --config configs/sample_001.yaml
 ```
 
 Depending on the selected input mode, the renderer generates
@@ -263,7 +260,6 @@ The `deepd3/` directory contains scripts for
 - inference and evaluation on the real DeepD3 benchmark
 - qualitative visualization of predictions
 
-
 ## Reproducibility
 
 The synthetic microscopy data can be regenerated using the provided configuration
@@ -288,4 +284,3 @@ Fernholz, M. H. P., Guggiana Nilo, D. A., Bonhoeffer, T., and Kist, A. M.
 PLOS Computational Biology, 2024.
 
 Repository: [DeepD3](https://github.com/Beanavil/DeepD3)
-

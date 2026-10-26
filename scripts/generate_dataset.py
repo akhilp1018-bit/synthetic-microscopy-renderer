@@ -34,8 +34,9 @@ Image arrays      : ZYX [Z, Y, X]
 
 Run
 ---
-PYTHONPATH=. python scripts/generate_dataset.py \
-    --config configs/dataset_v1.yaml
+From the repository root:
+
+    python scripts/generate_dataset.py --config configs/dataset_v1.yaml
 """
 
 import argparse

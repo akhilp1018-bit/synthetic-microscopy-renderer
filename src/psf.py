@@ -16,7 +16,12 @@ import tifffile
 
 
 def _move_psf_to_zyx(arr: np.ndarray) -> np.ndarray:
-    """Move a 3D PSF array to ZYX order."""
+    """
+    Reorder a 3D PSF array to ZYX order.
+
+    The smallest array dimension is assumed to correspond to the axial
+    Z dimension and is moved to the first axis when necessary.
+    """
     if arr.ndim != 3:
         raise ValueError(f"PSF must be 3D, got shape {arr.shape}")
 

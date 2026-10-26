@@ -110,9 +110,9 @@ def compute_voxel_grid(
         render bounding box and voxel size.
 
     Fixed mode:
-        If output_shape_zyx is provided, the output shape is fixed and the
-        grid is centered on the render bounding box. This is useful for
-        fixed-size patches, but the selected center must contain geometry.
+        If output_shape_zyx is provided, the output shape is fixed. The grid
+        is centred on fixed_center_xyz_nm when provided; otherwise, it is
+        centred on the render bounding box.
 
     Args:
         render_bbox:

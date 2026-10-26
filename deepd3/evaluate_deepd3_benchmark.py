@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 Evaluate real-trained and synthetic-trained DeepD3 models on the
 real DeepD3 benchmark.
@@ -645,7 +647,6 @@ def load_all_dendrite_gt(
         )
 
     # =====================================================
-    # NEW:
     # Construct intersection and union of dendrite GT masks
     # =====================================================
 
@@ -834,7 +835,6 @@ def evaluate_segmentation_model(
     print("DENDRITE RESULTS")
     print("========================================")
 
-    # NEW:
     # Evaluate U, V, W, intersection and union.
 
     for gt_name in [
@@ -1161,7 +1161,7 @@ def pixel_to_nm(
 
 
 # =========================================================
-# Greedy one-to-one matching
+# Greedy one-to-one spine-center matching
 # =========================================================
 
 def greedy_match_centers(

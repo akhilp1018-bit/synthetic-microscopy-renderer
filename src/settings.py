@@ -5,10 +5,6 @@ This module provides helper functions for:
     - finding the repository root
     - resolving relative paths from the repository root
     - loading YAML configuration files
-
-The renderer is intended to be run from the repository using:
-
-    PYTHONPATH=. python scripts/render.py --config configs/default.yaml
 """
 
 from pathlib import Path

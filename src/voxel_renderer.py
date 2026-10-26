@@ -239,6 +239,7 @@ def _triangle_surface_samples_batched(tri_batch, spacing_nm, device):
 
     return points, weights
 
+
 def _ply_scalar_dtype(name, endian="<"):
     """Return a NumPy dtype for a scalar PLY property type."""
     mapping = {
@@ -309,7 +310,8 @@ def _load_roi_geometry_from_binary_ply(
     roi_max,
     face_filter_batch,
 ):
-    """Stream a binary triangle PLY and return only geometry near the ROI.
+    """
+    Stream a binary triangle PLY and return only geometry near the ROI.
 
     Vertex data are memory-mapped and face records are read in chunks. This
     avoids constructing a full Trimesh object for very large source meshes.
@@ -513,6 +515,9 @@ def mesh_to_density_zyx(
     Each valid triangle contributes its physical surface area to the voxel
     grid. Surface samples determine where that area is deposited, so total
     membrane density is not determined by mesh vertex count.
+
+    Voxel values therefore represent accumulated physical surface-area
+    contributions from the mesh.
     """
     device = get_device(device)
 
@@ -634,12 +639,15 @@ def mesh_to_filled_density_zyx(
     closing_iterations=1,
 ):
     """
-    Create a filled occupancy volume from the rasterized mesh surface.
+    Create a binary filled occupancy volume from the rasterized mesh surface.
 
     The mesh surface is first rasterized into the voxel grid. A controlled
     binary closing can bridge small voxel-scale gaps, after which enclosed
     regions are filled. This is intended for meshes that may contain small
     discretization gaps; large open boundaries are not repaired automatically.
+
+    The resulting volume represents occupied voxels rather than area-weighted
+    membrane density.
     """
     device = get_device(device)
 
@@ -692,6 +700,7 @@ def mesh_to_filled_density_zyx(
         dtype=torch.float32,
         device=device,
     )
+
 
 def ensure_psf_odd_xy(psf_zyx, renormalize=False, device=None):
     """
@@ -795,6 +804,7 @@ def build_density_for_mesh(
 
     return rho
 
+
 def render_density(rho, psf_eff, tag, device):
     """
     Render a density volume by applying PSF convolution.
@@ -830,7 +840,7 @@ def render_single_mesh_voxel(
     The renderer configuration is read from config["renderer"]["voxel_grid"].
 
     Returns:
-        Rendered image volume in ZYX order.
+        Rendered float32 image volume in ZYX order.
     """
     renderer_cfg = config["renderer"].get(
         "voxel_grid",

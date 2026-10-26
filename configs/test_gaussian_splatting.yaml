@@ -1,12 +1,32 @@
+# ============================================================
+# Gaussian Splatting Renderer Comparison Configuration
+# ============================================================
+#
+# Renders mesh_001 using Gaussian surface splatting for
+# comparison with the voxel-based renderer.
+#
+# Run from the repository root:
+#
+#   python scripts/render.py --config configs/<config_name>.yaml
+#
+# Coordinate convention:
+#   Mesh coordinates: XYZ, converted to nanometres by scale_to_nm.
+#   Output arrays: ZYX [Z slices, Y pixels, X pixels].
+#
+# ============================================================
+
+
 input:
   mode: single_mesh
   mesh_path: data/mesh_001/mesh_001.ply
   scale_to_nm: 1.0
   recenter: false
 
+
 output:
   output_dir: outputs/render_comparison/gaussian_splatting
   output_name: mesh001_gaussian_splatting
+
 
 grid:
   xy_um_per_px: 0.094
@@ -18,6 +38,7 @@ grid:
   shape_mode: fixed
   output_shape_zyx: [128, 256, 256]
 
+
 renderer:
   method: gaussian_splatting
   labeling_mode: membrane
@@ -25,6 +46,8 @@ renderer:
   voxel_grid:
     labeling_mode: membrane
     filled_closing_iterations: 1
+
+
 splatting:
   spacing_nm: 200
   sigma_tangent_nm: 100.0
@@ -32,6 +55,7 @@ splatting:
   apply_psf: true
   seed: 0
   points_per_batch: 50000
+
 
 psf:
   mode: gaussian_2p
@@ -42,12 +66,14 @@ psf:
   sigma_scale_xy: 1.0
   sigma_scale_z: 1.0
 
+
 noise:
   enabled: false
   peak_photons: 500.0
   read_noise_std: 5.0
   seed: 0
   gaussian_chunk_slices: 16
+
 
 masks:
   object_rel_threshold: 0.1

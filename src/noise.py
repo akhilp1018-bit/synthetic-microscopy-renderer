@@ -35,7 +35,16 @@ def add_microscopy_noise_torch(
     gaussian_chunk_slices: int = 16,
     apply_poisson: bool = True,
 ) -> torch.Tensor:
-    """Add reproducible microscopy noise without changing Torch's global RNG state."""
+    """
+    Add reproducible microscopy noise to a rendered volume.
+
+    The clean volume is normalized and scaled by the configured photon budget.
+    Poisson noise can be applied to model photon-counting noise, followed by
+    Gaussian noise to approximate detector readout noise.
+
+    A local Torch RNG context is used so the selected seed does not permanently
+    modify the global random state used elsewhere in the pipeline.
+    """
 
     if peak_photons <= 0:
         raise ValueError("peak_photons must be > 0.")
@@ -80,7 +89,18 @@ def apply_noise_if_enabled(
     vol: torch.Tensor,
     config: dict,
 ) -> torch.Tensor:
-    """Apply the microscopy noise model selected in the configuration."""
+    """
+    Apply the microscopy noise model selected in the configuration.
+
+    Supported modes are:
+        - none
+        - poisson
+        - gaussian
+        - poisson_gaussian
+
+    If noise is disabled in the configuration, the input volume is returned
+    unchanged.
+    """
 
     noise_cfg = config.get("noise", {})
     if not noise_cfg.get("enabled", False):

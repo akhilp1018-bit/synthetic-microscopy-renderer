@@ -7,7 +7,7 @@
 #
 # Reproducible command from repository root:
 #
-#   PYTHONPATH=. python scripts/render.py --config configs/mesh_001.yaml
+#   python scripts/render.py --config configs/mesh_001.yaml
 #
 # Coordinate convention:
 #   Mesh coordinates : XYZ, converted to nanometres by scale_to_nm.
@@ -237,8 +237,10 @@ psf:
   refractive_index: 1.33
 
   # Optional calibration factors.
+  sigma_scale_xy: 1.0
+  sigma_scale_z: 1.0
 
-
+  
 noise:
   # ------------------------------------------------------------
   # Microscopy noise
