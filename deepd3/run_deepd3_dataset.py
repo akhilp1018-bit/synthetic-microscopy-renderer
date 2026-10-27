@@ -19,7 +19,7 @@ deepd3/
 │   ├── DeepD3_32F.h5
 │   ├── DeepD3_32F_94nm.h5
 │   └── synthetic_94nm/
-│       └── synthetic_32F_94nm_best.h5
+│       └── synthetic_32F_94nm_seed0_best.h5
 │
 └── run_deepd3_dataset.py
 
@@ -57,7 +57,7 @@ Run all commands from the repository root.
         --dataset outputs/synthetic_dataset_v1 \
         --split validation \
         --model-synthetic-94nm \
-        deepd3/models/synthetic_94nm/synthetic_32F_94nm_best.h5
+        deepd3/models/synthetic_94nm/synthetic_32F_94nm_seed0_best.h5
 
 If predictions from the original pretrained models already exist,
 they are skipped automatically. The synthetic-trained prediction is
@@ -71,7 +71,7 @@ then generated separately.
         --dataset outputs/synthetic_dataset_v1 \
         --split test \
         --model-synthetic-94nm \
-        deepd3/models/synthetic_94nm/synthetic_32F_94nm_best.h5
+        deepd3/models/synthetic_94nm/synthetic_32F_94nm_seed0_best.h5
 
 
 5. Process only one instance
@@ -83,7 +83,7 @@ complete split:
     python deepd3/run_deepd3_dataset.py \
         --split validation \
         --model-synthetic-94nm \
-        deepd3/models/synthetic_94nm/synthetic_32F_94nm_best.h5 \
+        deepd3/models/synthetic_94nm/synthetic_32F_94nm_seed0_best.h5 \
         --max-instances 1
 
 
@@ -202,7 +202,7 @@ DEFAULT_MODEL_SYNTHETIC_94NM = (
     / "deepd3"
     / "models"
     / "synthetic_94nm"
-    / "synthetic_32F_94nm_best.h5"
+    / "synthetic_32F_94nm_seed0_best.h5"
 )
 
 

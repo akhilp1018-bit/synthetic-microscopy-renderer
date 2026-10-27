@@ -1,4 +1,3 @@
-
 """
 run_deepd3_benchmark.py
 -----------------------
@@ -43,7 +42,7 @@ benchmarks/deepd3/
 deepd3/models/
 ├── DeepD3_32F_94nm.h5
 └── synthetic_94nm/
-    └── synthetic_32F_94nm_best.h5
+    └── synthetic_32F_94nm_seed0_best.h5
 
 
 Output
@@ -65,6 +64,7 @@ Predictions are saved as raw probability maps with:
 
 No cleaning, clipping, or thresholding is applied.
 """
+
 from pathlib import Path
 import argparse
 import numpy as np
@@ -87,7 +87,8 @@ DEFAULT_REAL_MODEL = Path(
 )
 
 DEFAULT_SYNTHETIC_MODEL = Path(
-    "deepd3/models/synthetic_94nm/synthetic_32F_94nm_best.h5"
+    "deepd3/models/synthetic_94nm/"
+    "synthetic_32F_94nm_seed0_best.h5"
 )
 
 DEFAULT_OUTPUT_DIR = Path(
