@@ -128,7 +128,7 @@ synthetic-microscopy-renderer/
 ├── configs/           # Rendering and dataset configuration files
 ├── deepd3/            # DeepD3 evaluation and visualization scripts
 ├── gui/               # Interactive mesh visualization utilities
-├── psfs/              # Example PSFs
+├── psfs/              # Optional PSF inputs for additional tests
 ├── scripts/           # Main pipeline entry points: render.py and generate_dataset.py
 ├── src/               # Core rendering implementation
 ├── README.md

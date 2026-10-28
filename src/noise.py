@@ -40,7 +40,7 @@ def add_microscopy_noise_torch(
 
     The clean volume is normalized and scaled by the configured photon budget.
     Poisson noise can be applied to model photon-counting noise, followed by
-    Gaussian noise to approximate detector readout noise.
+    additive Gaussian noise to approximate a signal-independent noise contribution.
 
     A local Torch RNG context is used so the selected seed does not permanently
     modify the global random state used elsewhere in the pipeline.

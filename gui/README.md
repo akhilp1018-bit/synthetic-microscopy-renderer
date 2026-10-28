@@ -22,14 +22,14 @@ python gui/app.py
 
 ## Basic workflow
 
-1. Load a mesh.
+1. Load a mesh whose coordinates are expressed in nanometers (nm). If the mesh uses another coordinate scale, convert it to nanometers before loading.
 2. Rotate, zoom, and inspect the mesh in the 3D viewer.
 3. Select the output image shape `[Z, Y, X]`.
 4. Select the XY and Z sampling.
 5. Add the rendering ROI.
 6. Move or rotate the ROI to the desired position on the mesh.
 7. Export the renderer configuration.
-8. Run the render or add the configuration to the render queue.
+8. Run the render directly from the GUI or add the configuration to the render queue.
 
 ## Rendering subvolume
 
@@ -59,7 +59,10 @@ the selected ROI orientation.
 
 ## Exported configuration
 
-The GUI creates a complete YAML configuration that can also be used directly with the command-line renderer:
+The GUI creates a complete YAML configuration. After export, the configuration
+can be executed directly using the **Run Render** button in the GUI.
+
+The same exported configuration can alternatively be used with the command-line renderer:
 
 ```bash
 python scripts/render.py --config gui/configs/<exported_config.yaml>

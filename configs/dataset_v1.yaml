@@ -57,7 +57,7 @@ renderer:
     batch_faces: 8192
     labeling_mode: membrane
     filled_closing_iterations: 1
-
+# Used when renderer.method: gaussian_splatting
 splatting:
   spacing_nm: 200
   sigma_tangent_nm: 100.0

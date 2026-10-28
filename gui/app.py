@@ -166,6 +166,16 @@ class MainWindow(QMainWindow):
     def _build_mesh_controls(self):
         self._section_label("Mesh Input")
 
+        units_note = QLabel(
+            "Mesh coordinates must be in nanometers (nm). "
+            "If the mesh uses another coordinate scale, convert it to nm before loading."
+        )
+        units_note.setWordWrap(True)
+        self.left_layout.addWidget(units_note)
+
+        
+        
+
         self.load_button = QPushButton("Load Single Mesh (nm)")
         self.load_button.clicked.connect(self.load_mesh)
         self.left_layout.addWidget(self.load_button)
